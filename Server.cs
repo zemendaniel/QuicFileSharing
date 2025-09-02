@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Net.Quic;
@@ -52,7 +53,8 @@ public class Server
         while (isRunning)
         {
             var connection = await listener.AcceptConnectionAsync();
-            _ = HandleConnectionAsync(connection); 
+            //_ = HandleConnectionAsync(connection); 
+            _ = HandleFileAsync(connection); 
         }
     }
 
@@ -85,6 +87,56 @@ public class Server
             Console.WriteLine($"Connection error: {ex.Message}");
         }
     }
+    private async Task HandleFileAsync(QuicConnection connection)
+    {
+        try
+        {
+            var stream = await connection.AcceptInboundStreamAsync();
+
+            string outputPath = "/root/big2.zip";
+            using var outputFile = new FileStream(
+                outputPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 1024 * 1024,
+                useAsync: true);
+
+            byte[] buffer = new byte[1024 * 1024]; // 1 MB chunks
+            int bytesRead;
+            long totalBytes = 0;
+            var stopwatch = Stopwatch.StartNew();
+            var chunkStopwatch = Stopwatch.StartNew();
+            double avgSpeed = 0;
+            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead));
+                totalBytes += bytesRead;
+                //double instSpeed = (bytesRead / (1024.0 * 1024.0)) / chunkStopwatch.Elapsed.TotalSeconds;
+                avgSpeed = (totalBytes / (1024.0 * 1024.0)) / stopwatch.Elapsed.TotalSeconds;
+                
+                chunkStopwatch.Restart();
+                //Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytes} bytes)");
+                //Console.WriteLine($"Instant speed: {instSpeed:F2} MB/s");
+            }
+            stopwatch.Stop();   
+            // make sure everything is flushed to disk
+            await outputFile.FlushAsync();
+
+            Console.WriteLine($"✅ File received and saved as {outputPath}, size = {totalBytes} bytes");
+            Console.WriteLine($"Average speed was {avgSpeed:F2} MB/s, time {stopwatch.Elapsed}");
+            // Send confirmation
+            string responseMessage = "File received successfully!";
+            byte[] responseBytes = Encoding.UTF8.GetBytes(responseMessage);
+            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+            await stream.FlushAsync(); // signal end of response
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Connection error: {ex.Message}");
+        }
+    }
+
 
     public async Task Stop()
     {

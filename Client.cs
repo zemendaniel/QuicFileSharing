@@ -50,4 +50,42 @@ public class Client
         await outboundStream.DisposeAsync();
         await connection.DisposeAsync();
     }
+    public async Task SendFileAsync(string filePath, string host = "127.0.0.1", int port = 5000)
+    {
+        var options = new QuicClientConnectionOptions
+        {
+            RemoteEndPoint = new IPEndPoint(IPAddress.Parse(host), port),
+            DefaultStreamErrorCode = 0x0A,
+            DefaultCloseErrorCode = 0x0B,
+            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            {
+                ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
+                RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+            }
+        };
+
+        await using var connection = await QuicConnection.ConnectAsync(options);
+        using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+
+        const int chunkSize = 1024 * 1024; // 1 MB
+        byte[] buffer = new byte[chunkSize];
+
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+
+        int bytesRead;
+        while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+        {
+            await stream.WriteAsync(buffer.AsMemory(0, bytesRead));
+            Console.WriteLine($"Sent chunk: {bytesRead} bytes");
+        }
+
+        await stream.WriteAsync(Array.Empty<byte>(), completeWrites: true);
+        Console.WriteLine("File sent.");
+
+        // optional: wait for server response
+        byte[] responseBuffer = new byte[1024];
+        int responseBytes = await stream.ReadAsync(responseBuffer);
+        string response = Encoding.UTF8.GetString(responseBuffer, 0, responseBytes);
+        Console.WriteLine($"Server response: {response}");
+    }
 }

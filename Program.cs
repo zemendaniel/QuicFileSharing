@@ -20,7 +20,7 @@ class Program
 
             case "client":
                 var client = new Client();
-                await client.ConnectAndSendMessageAsync();
+                await client.SendFileAsync("/root/big.zip");
                 break;
 
             default:
