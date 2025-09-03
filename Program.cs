@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Threading.Tasks;
 
-class Program
+class QuicFileSharing
 {
+    public static int fileChunkSize = 16 * 1024 * 1024;
+    public static int messageChunkSize = 1024;
+    public static int fileBufferSize = 1014 * 1024;
     static async Task Main(string[] args)
     {
         if (args.Length == 0)
@@ -20,7 +23,8 @@ class Program
 
             case "client":
                 var client = new Client();
-                await client.SendFileAsync("/root/big.zip");
+                await client.StartAsync();
+                // await client.SendFileAsync("/root/big.zip");
                 break;
 
             default:
