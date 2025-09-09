@@ -1,5 +1,8 @@
 using System.Net.Quic;
 using System.Text;
+using System.Diagnostics;
+using System.Buffers;
+using System.Threading.Channels;
 
 public abstract class QuicPeer
 {
@@ -7,21 +10,99 @@ public abstract class QuicPeer
 
     protected QuicStream? controlStream;
     protected QuicStream? fileStream;
+
     protected CancellationTokenSource? cts;
+
     // protected bool isRunning = false;
     // protected bool isReceivingFile = false;
     // protected bool isSendingFile = false;
     // protected readonly List<Task> connectionTasks = new();
+    protected bool isReceiver = false;
     protected CancellationToken token = CancellationToken.None;
+    protected string? saveFolder;
+    protected string? filePath;
+    protected Dictionary<string, string>? metadata;
+    protected string? joinedFilePath;
+    protected Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
 
+    public bool IsReceiver => isReceiver;
 
-    protected Task ControlLoopAsync()
+    public void InitReceive(string folder)
     {
-        return Task.CompletedTask;
+        saveFolder = folder;
+        isReceiver = true;
     }
-    
-    protected Task FileLoopAsync()
+
+    public void InitSend(string path)
     {
-        return Task.CompletedTask;
+        filePath = path;
+        isReceiver = false;
+    }
+
+    protected async Task ControlLoopAsync()
+    {
+        if (controlStream == null)
+            throw new InvalidOperationException("Control stream not initialized.");
+
+        var writer = new StreamWriter(controlStream, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+        var reader = new StreamReader(controlStream, Encoding.UTF8, leaveOpen: true);
+
+        var sendTask = Task.Run(async () =>
+        {
+            await foreach (var msg in controlSendQueue.Reader.ReadAllAsync(token))
+                await writer.WriteLineAsync(msg);
+        }, token);
+
+        var receiveTask = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                string? line = await reader.ReadLineAsync();
+                if (line == null) break;
+                await HandleControlMessage(line); 
+            }
+        }, token);
+
+        await Task.WhenAll(sendTask, receiveTask);
+    }
+
+    private async Task HandleControlMessage(string? line)
+    {
+        // todo itt tartottam
+    }
+
+    protected async Task FileLoopAsync()
+    {
+        if (isReceiver)
+        {
+            if (metadata == null)
+                throw new Exception("The receiver was started prematurely.");
+
+            await using var outputFile = new FileStream(
+                joinedFilePath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: QuicFileSharing.fileChunkSize,
+                useAsync: true);
+
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
+            long totalBytesReceived = 0;
+            int bytesRead;
+            var stopwatch = Stopwatch.StartNew();
+            while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+                totalBytesReceived += bytesRead;
+                Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived})");
+            }
+            stopwatch.Stop();   
+            await outputFile.FlushAsync();
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
+            Console.WriteLine($"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
+            
+            // todo send control message here
+        }
     }
 }

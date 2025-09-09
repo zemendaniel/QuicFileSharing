@@ -16,7 +16,7 @@ public class Server: QuicPeer
     {
         using var rsa = new RSACryptoServiceProvider(2048);
         var request = new CertificateRequest(
-            "CN=localhost",
+            "",
             rsa,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1
@@ -151,9 +151,9 @@ public class Server: QuicPeer
     //         await outputFile.FlushAsync();
     //         ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
     //         
-    //         Console.WriteLine($"File received and saved as {outputPath}, size = {totalBytes} bytes");
-    //         Console.WriteLine($"Average speed was {(totalBytes / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds):F2} MB/s, time {stopwatch.Elapsed}");
     //         
+    //         Console.WriteLine($"File received and saved as {outputPath}, size = {totalBytes} bytes");
+                   //         Console.WriteLine($"Average speed was {(totalBytes / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds):F2} MB/s, time {stopwatch.Elapsed}");
     //         string responseMessage = "File received successfully!";
     //         byte[] responseBytes = Encoding.UTF8.GetBytes(responseMessage);
     //         await stream.WriteAsync(responseBytes.AsMemory(), completeWrites:  true);
