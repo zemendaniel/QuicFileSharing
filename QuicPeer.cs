@@ -2,6 +2,7 @@ using System.Net.Quic;
 using System.Text;
 using System.Diagnostics;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Threading.Channels;
 
 public abstract class QuicPeer
@@ -44,27 +45,64 @@ public abstract class QuicPeer
         if (controlStream == null)
             throw new InvalidOperationException("Control stream not initialized.");
 
-        var writer = new StreamWriter(controlStream, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
-        var reader = new StreamReader(controlStream, Encoding.UTF8, leaveOpen: true);
-
         var sendTask = Task.Run(async () =>
         {
             await foreach (var msg in controlSendQueue.Reader.ReadAllAsync(token))
-                await writer.WriteLineAsync(msg);
+            {
+                var payload = Encoding.UTF8.GetBytes(msg);
+                await SendMessageAsync(payload);
+            }
         }, token);
 
         var receiveTask = Task.Run(async () =>
         {
             while (!token.IsCancellationRequested)
             {
-                string? line = await reader.ReadLineAsync();
-                if (line == null) break;
-                await HandleControlMessage(line); 
+                var payload = await ReadMessageAsync(token);
+                if (payload == null) break; // stream closed
+                string message = Encoding.UTF8.GetString(payload);
+                await HandleControlMessage(message);
             }
         }, token);
 
         await Task.WhenAll(sendTask, receiveTask);
     }
+    
+    private async Task SendMessageAsync(ReadOnlyMemory<byte> payload)
+    {
+        if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
+
+        byte[] lenBuf = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(lenBuf, payload.Length);
+
+        await controlStream.WriteAsync(lenBuf, token);
+        if (!payload.IsEmpty)
+            await controlStream.WriteAsync(payload, token);
+
+        // Optional: flush to push out small control frames promptly
+        await controlStream.FlushAsync(token);
+    }
+
+    // Reads a single length-prefixed message; returns null if the stream is closed
+    private async Task<byte[]?> ReadMessageAsync(CancellationToken ct)
+    {
+        if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
+
+        byte[] lenBuf = new byte[4];
+        int read = await controlStream.ReadExactlyAsync(lenBuf, ct);
+        // todo itt voltam
+        if (read == 0) return null; // stream closed before reading length
+
+        int size = BinaryPrimitives.ReadInt32BigEndian(lenBuf);
+        if (size < 0) throw new IOException("Invalid message size.");
+
+        byte[] payload = size == 0 ? Array.Empty<byte>() : new byte[size];
+        if (size > 0)
+            await controlStream.ReadExactlyAsync(payload, ct);
+
+        return payload;
+    }
+
 
     private async Task HandleControlMessage(string? line)
     {
