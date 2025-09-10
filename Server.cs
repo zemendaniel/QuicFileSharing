@@ -49,27 +49,18 @@ public class Server: QuicPeer
         
         cts = new CancellationTokenSource();
         token = cts.Token;
-
-        // _ = Task.Run(async () =>
-        //     {
-        //         await WaitForStreamsAsync();
-        //         await QueueControlMessage("asd");
-        //     }
-        // );
         
-        while (!token.IsCancellationRequested)
+        try
         {
-            try
-            {
-                connection = await listener.AcceptConnectionAsync(token);
-                Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            _ = Task.Run(HandleConnectionAsync);
+            connection = await listener.AcceptConnectionAsync(token);
+            Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
         }
+        catch (OperationCanceledException)
+        {
+            
+        }
+        await HandleConnectionAsync();
+        
     }
 
     private async Task HandleConnectionAsync()
@@ -98,7 +89,7 @@ public class Server: QuicPeer
 
                         case 0x02:
                             fileStream = stream;     
-                            _ = Task.Run(FileLoopAsync, token);
+                            // _ = Task.Run(FileLoopAsync, token);
                             Console.WriteLine("Opened file stream");
                             SetFileStream();
                             break;
@@ -129,53 +120,6 @@ public class Server: QuicPeer
             Console.WriteLine($"Connection error: {ex}");
         }
     }
-    // private async Task HandleFileAsync()
-    // {
-    //     try
-    //     {
-    //         var stream = await connection.AcceptInboundStreamAsync();
-    //
-    //         string outputPath = "/root/big2.zip";
-    //         await using var outputFile = new FileStream(
-    //             outputPath,
-    //             FileMode.Create,
-    //             FileAccess.Write,
-    //             FileShare.None,
-    //             bufferSize: QuicFileSharing.fileChunkSize,
-    //             useAsync: true);
-    //
-    //         byte[] buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
-    //         long totalBytes = 0;
-    //         int bytesRead;
-    //         var stopwatch = Stopwatch.StartNew();
-    //         while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-    //         {
-    //             await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead));
-    //             totalBytes += bytesRead;
-    //             
-    //             // double instSpeed = (bytesRead / (1024.0 * 1024.0)) / chunkStopwatch.Elapsed.TotalSeconds;
-    //             // avgSpeed = (totalBytes / (1024.0 * 1024.0)) / stopwatch.Elapsed.TotalSeconds;
-    //             //Console.WriteLine($"Instant speed: {instSpeed:F2} MB/s");
-    //             
-    //             Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytes} bytes)");
-    //         }
-    //         stopwatch.Stop();   
-    //         await outputFile.FlushAsync();
-    //         ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
-    //         
-    //         
-    //         Console.WriteLine($"File received and saved as {outputPath}, size = {totalBytes} bytes");
-                   //         Console.WriteLine($"Average speed was {(totalBytes / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds):F2} MB/s, time {stopwatch.Elapsed}");
-    //         string responseMessage = "File received successfully!";
-    //         byte[] responseBytes = Encoding.UTF8.GetBytes(responseMessage);
-    //         await stream.WriteAsync(responseBytes.AsMemory(), completeWrites:  true);
-    //         await stream.FlushAsync(); 
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         Console.WriteLine($"Connection error: {ex.Message}");
-    //     }
-    // }
 
     public async Task StopAsync()
     {

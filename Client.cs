@@ -12,7 +12,6 @@ public class Client : QuicPeer
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
             RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 5000),
-            // IdleTimeout = TimeSpan.FromSeconds(15),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
@@ -29,18 +28,16 @@ public class Client : QuicPeer
         token = cts.Token;
         
         controlStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
-        await controlStream.WriteAsync(new byte[] { 0x01 }, token); // header
+        await controlStream.WriteAsync(new byte[] { 0x01 }, token);     // header
         SetControlStream();
         _ = Task.Run(ControlLoopAsync);
         
         fileStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
-        await fileStream.WriteAsync(new byte[] { 0x02 }, token); // header
+        await fileStream.WriteAsync(new byte[] { 0x02 }, token); 
         SetFileStream();
-        _ = Task.Run(FileLoopAsync);
+        //_ = Task.Run(FileLoopAsync);
         
         _ = Task.Run(KeepAliveLoopAsync);
-        
-        // await TestAsync();
         
         try
         {
@@ -50,7 +47,6 @@ public class Client : QuicPeer
         {
 
         }
-
 
     }
     private async Task KeepAliveLoopAsync()
@@ -73,9 +69,9 @@ public class Client : QuicPeer
         Console.WriteLine("Client stopped.");
     }
 
-    private async Task TestAsync()
-    {
-        Console.WriteLine("Sending");
-        await controlSendQueue.Writer.WriteAsync("123", token);
-    }
+    // private async Task TestAsync()
+    // {
+    //     Console.WriteLine("Sending");
+    //     await controlSendQueue.Writer.WriteAsync("123", token);
+    // }
 }
