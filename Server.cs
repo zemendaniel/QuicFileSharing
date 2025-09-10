@@ -30,7 +30,6 @@ public class Server: QuicPeer
     {
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
-            // IdleTimeout = TimeSpan.FromSeconds(15),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
@@ -50,6 +49,13 @@ public class Server: QuicPeer
         
         cts = new CancellationTokenSource();
         token = cts.Token;
+
+        // _ = Task.Run(async () =>
+        //     {
+        //         await WaitForStreamsAsync();
+        //         await QueueControlMessage("asd");
+        //     }
+        // );
         
         while (!token.IsCancellationRequested)
         {
@@ -87,12 +93,14 @@ public class Server: QuicPeer
                             controlStream = stream;  
                             _ = Task.Run(ControlLoopAsync, token);
                             Console.WriteLine("Opened control stream");
+                            SetControlStream();
                             break;
 
                         case 0x02:
                             fileStream = stream;     
                             _ = Task.Run(FileLoopAsync, token);
                             Console.WriteLine("Opened file stream");
+                            SetFileStream();
                             break;
 
                         default:

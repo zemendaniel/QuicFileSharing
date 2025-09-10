@@ -30,18 +30,18 @@ public class Client : QuicPeer
         
         controlStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
         await controlStream.WriteAsync(new byte[] { 0x01 }, token); // header
+        SetControlStream();
         _ = Task.Run(ControlLoopAsync);
         
         fileStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
         await fileStream.WriteAsync(new byte[] { 0x02 }, token); // header
+        SetFileStream();
         _ = Task.Run(FileLoopAsync);
         
         _ = Task.Run(KeepAliveLoopAsync);
-
-        await TestAsync();
-        await Task.Delay(1000, token);
-        await TestAsync();
-        await TestAsync();
+        
+        // await TestAsync();
+        
         try
         {
             await Task.Delay(Timeout.Infinite, token);
@@ -58,23 +58,7 @@ public class Client : QuicPeer
         while (!token.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(10), token);
-            if (controlStream == null)
-                continue;
-            try
-            {
-                await controlStream.WriteAsync(Encoding.UTF8.GetBytes("PING").AsMemory(), token);
-                await controlStream.FlushAsync(token);
-            }
-            catch (QuicException)
-            {
-                Console.WriteLine("Server disconnected");
-                await StopAsync();
-                break;
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            await QueueControlMessage("PING");
         }
     }
 
@@ -89,7 +73,7 @@ public class Client : QuicPeer
         Console.WriteLine("Client stopped.");
     }
 
-    public async Task TestAsync()
+    private async Task TestAsync()
     {
         Console.WriteLine("Sending");
         await controlSendQueue.Writer.WriteAsync("123", token);

@@ -25,6 +25,10 @@ public abstract class QuicPeer
     protected Dictionary<string, string>? metadata;
     protected string? joinedFilePath;
     protected Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
+    private readonly TaskCompletionSource bothStreamsReady =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool controlReady = false;
+    private bool fileReady = false;
 
     public bool IsReceiver => isReceiver;
 
@@ -38,6 +42,25 @@ public abstract class QuicPeer
     {
         filePath = path;
         isReceiver = false;
+    }
+    protected void SetControlStream()
+    {
+        controlReady = true;
+        CompleteIfBothStreamsReady();
+    }
+
+    protected void SetFileStream()
+    {
+        fileReady = true;
+        CompleteIfBothStreamsReady();
+    }
+    protected Task WaitForStreamsAsync() => bothStreamsReady.Task;
+    private void CompleteIfBothStreamsReady()
+    {
+        if (controlReady && fileReady)
+        {
+            bothStreamsReady.TrySetResult();
+        }
     }
 
     protected async Task ControlLoopAsync()
@@ -111,7 +134,18 @@ public abstract class QuicPeer
 
     private async Task HandleControlMessage(string? line)
     {
-        Console.WriteLine(line);
+        switch (line)
+        {
+            case "PING":
+                await QueueControlMessage("PONG");
+                break;
+            case "PONG":
+                // Console.WriteLine("PONG");
+                break;
+            default:
+                Console.WriteLine(line);
+                break;
+        }
     }
 
     protected async Task FileLoopAsync()
@@ -147,5 +181,10 @@ public abstract class QuicPeer
             
             // todo send control message here
         }
+    }
+
+    protected async Task QueueControlMessage(string msg)
+    {
+        await controlSendQueue.Writer.WriteAsync(msg, token);
     }
 }
