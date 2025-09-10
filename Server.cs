@@ -84,17 +84,21 @@ public class Server: QuicPeer
                     switch (header[0])
                     {
                         case 0x01:
+                            controlStream = stream;  
                             _ = Task.Run(ControlLoopAsync, token);
                             Console.WriteLine("Opened control stream");
                             break;
+
                         case 0x02:
+                            fileStream = stream;     
                             _ = Task.Run(FileLoopAsync, token);
                             Console.WriteLine("Opened file stream");
                             break;
+
                         default:
                             await stream.DisposeAsync();
                             break;
-                    }   
+                    }
                 }
                 catch (OperationCanceledException)
                 {

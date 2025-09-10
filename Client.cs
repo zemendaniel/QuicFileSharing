@@ -37,6 +37,11 @@ public class Client : QuicPeer
         _ = Task.Run(FileLoopAsync);
         
         _ = Task.Run(KeepAliveLoopAsync);
+
+        await TestAsync();
+        await Task.Delay(1000, token);
+        await TestAsync();
+        await TestAsync();
         try
         {
             await Task.Delay(Timeout.Infinite, token);
@@ -84,4 +89,9 @@ public class Client : QuicPeer
         Console.WriteLine("Client stopped.");
     }
 
+    public async Task TestAsync()
+    {
+        Console.WriteLine("Sending");
+        await controlSendQueue.Writer.WriteAsync("123", token);
+    }
 }

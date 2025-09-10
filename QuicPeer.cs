@@ -58,9 +58,9 @@ public abstract class QuicPeer
         {
             while (!token.IsCancellationRequested)
             {
-                var payload = await ReadMessageAsync(token);
+                var payload = await ReadMessageAsync();
                 if (payload == null) break; // stream closed
-                string message = Encoding.UTF8.GetString(payload);
+                var message = Encoding.UTF8.GetString(payload);
                 await HandleControlMessage(message);
             }
         }, token);
@@ -72,41 +72,46 @@ public abstract class QuicPeer
     {
         if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
 
-        byte[] lenBuf = new byte[4];
+        var lenBuf = new byte[4];
         BinaryPrimitives.WriteInt32BigEndian(lenBuf, payload.Length);
 
         await controlStream.WriteAsync(lenBuf, token);
         if (!payload.IsEmpty)
             await controlStream.WriteAsync(payload, token);
-
-        // Optional: flush to push out small control frames promptly
         await controlStream.FlushAsync(token);
     }
-
-    // Reads a single length-prefixed message; returns null if the stream is closed
-    private async Task<byte[]?> ReadMessageAsync(CancellationToken ct)
+    
+    private async Task<byte[]?> ReadMessageAsync()
     {
         if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
 
-        byte[] lenBuf = new byte[4];
-        int read = await controlStream.ReadExactlyAsync(lenBuf, ct);
-        // todo itt voltam
-        if (read == 0) return null; // stream closed before reading length
+        var lenBuf = new byte[4];
+        try
+        {
+            await controlStream.ReadExactlyAsync(lenBuf, token);
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
 
         int size = BinaryPrimitives.ReadInt32BigEndian(lenBuf);
         if (size < 0) throw new IOException("Invalid message size.");
 
         byte[] payload = size == 0 ? Array.Empty<byte>() : new byte[size];
         if (size > 0)
-            await controlStream.ReadExactlyAsync(payload, ct);
+        {
+            await controlStream.ReadExactlyAsync(payload, token);
+        }
 
         return payload;
     }
 
 
+
     private async Task HandleControlMessage(string? line)
     {
-        // todo itt tartottam
+        Console.WriteLine(line);
     }
 
     protected async Task FileLoopAsync()
