@@ -39,15 +39,6 @@ public class Client : QuicPeer
         
         _ = Task.Run(KeepAliveLoopAsync);
         
-        try
-        {
-            await Task.Delay(Timeout.Infinite, token);
-        }
-        catch (TaskCanceledException)
-        {
-
-        }
-
     }
     private async Task KeepAliveLoopAsync()
     {

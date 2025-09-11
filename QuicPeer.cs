@@ -146,8 +146,11 @@ public abstract class QuicPeer
                 Console.WriteLine("Receiver is ready, starting file send...");
                 _ = Task.Run(SendFileAsync, token);
                 break;
-            case "RECEIVED":
+            case "RECEIVED_FILE":
                 Console.WriteLine("Receiver confirmed file was received.");
+                break;
+            case "FILE_SENT":
+                Console.WriteLine("Sender confirmed file was sent.");
                 break;
             default:
                 if (line != null && line.StartsWith("METADATA:"))
@@ -173,6 +176,8 @@ public abstract class QuicPeer
     {
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
+        if (isReceiver)
+            throw new InvalidOperationException("InitSend cannot be called on a receiver.");
         
         var fileInfo = new FileInfo(filePath);
         var fileName = Path.GetFileName(filePath);
@@ -185,7 +190,7 @@ public abstract class QuicPeer
             ["FileSize"] = fileSize.ToString(),
             ["FileHash"] = hash
         };
-        var json = System.Text.Json.JsonSerializer.Serialize(metadata);
+        var json = System.Text.Json.JsonSerializer.Serialize(meta);
         await QueueControlMessage($"METADATA:{json}");
         
         await SendFileAsync();
@@ -193,20 +198,51 @@ public abstract class QuicPeer
 
     public async Task StartReceiving()
     {
-        // todo
+        if (!isReceiver)
+            throw new InvalidOperationException("InitReceive must be called first.");
+
+        if (controlStream == null || fileStream == null)
+            await WaitForStreamsAsync(); 
+        
+        Console.WriteLine("Ready to receive file...");
     }
+
     
     protected async Task SendFileAsync()
     {
-        // todo
-        // todo mark end of file
+        if (filePath == null) 
+            throw new InvalidOperationException("InitSend must be called first.");
+        if (fileStream == null) 
+            throw new InvalidOperationException("File stream not initialized.");
+        
+        var buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
+        await using var inputFile = new FileStream(
+            path: filePath,
+            mode: FileMode.Open,
+            access: FileAccess.Read,
+            share: FileShare.Read,
+            bufferSize: QuicFileSharing.fileBufferSize,
+            useAsync: true
+        );
+        
+        int bytesRead;
+        while ((bytesRead = await inputFile.ReadAsync(buffer, token)) > 0)
+        {
+            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+            Console.WriteLine($"Sent chunk: {bytesRead} bytes");
+        }
+        ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        
+        await QueueControlMessage("FILE_SENT");
     }
 
     protected async Task ReceiveFileAsync()
     {
-
         if (metadata == null)
             throw new Exception("The receiver was started prematurely.");
+        
+        if (fileStream == null) 
+            throw new InvalidOperationException("File stream not initialized.");
 
         await using var outputFile = new FileStream(
             joinedFilePath,
@@ -216,15 +252,17 @@ public abstract class QuicPeer
             bufferSize: QuicFileSharing.fileChunkSize,
             useAsync: true);
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
+        var buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
         long totalBytesReceived = 0;
-        int bytesRead;
+        var fileSize = long.Parse(metadata["FileSize"]);
         var stopwatch = Stopwatch.StartNew();
-        while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
+        while (totalBytesReceived < fileSize)
         {
+            var bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, token);
+            // if (bytesRead == 0) break; 
             await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
             totalBytesReceived += bytesRead;
-            Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived})");
+            Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
         }
         stopwatch.Stop();   
         await outputFile.FlushAsync();
@@ -232,7 +270,7 @@ public abstract class QuicPeer
         Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine($"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
         
-        await QueueControlMessage("DONE");
+        await QueueControlMessage("RECEIVED_FILE");
     }
 
     protected async Task QueueControlMessage(string msg)
@@ -243,14 +281,14 @@ public abstract class QuicPeer
     {
         using var sha = SHA256.Create();
         await using var stream = File.OpenRead(path);
-        var buffer = new byte[QuicFileSharing.fileChunkSize]; 
+        var buffer = ArrayPool<byte>.Shared.Rent(QuicFileSharing.fileChunkSize);
         int bytesRead;
 
         while ((bytesRead = await stream.ReadAsync(buffer, token)) > 0)
         {
             sha.TransformBlock(buffer, 0, bytesRead, null, 0);
         }
-        
+        ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         sha.TransformFinalBlock([], 0, 0);
         return Convert.ToHexStringLower(sha.Hash);
     }

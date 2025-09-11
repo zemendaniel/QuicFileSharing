@@ -11,6 +11,7 @@ public class Server: QuicPeer
 {
 
     private QuicListener? listener;
+    private Task? acceptLoopTask;
 
     private static X509Certificate2 CreateSelfSignedCertificate()
     {
@@ -50,17 +51,24 @@ public class Server: QuicPeer
         cts = new CancellationTokenSource();
         token = cts.Token;
         
+        acceptLoopTask = Task.Run(AcceptConnectionsLoop, token);
+        
+    }
+    private async Task AcceptConnectionsLoop()
+    {
         try
         {
-            connection = await listener.AcceptConnectionAsync(token);
-            Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
+            while (!token.IsCancellationRequested)
+            {
+                connection = await listener.AcceptConnectionAsync(token);
+                Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
+                _ = Task.Run(HandleConnectionAsync, token);
+            }
         }
         catch (OperationCanceledException)
         {
-            
+
         }
-        await HandleConnectionAsync();
-        
     }
 
     private async Task HandleConnectionAsync()
