@@ -19,7 +19,7 @@ public abstract class QuicPeer
     // protected bool isReceivingFile = false;
     // protected bool isSendingFile = false;
     // protected readonly List<Task> connectionTasks = new();
-    protected bool isReceiver = false;
+    protected bool? isReceiver;
     protected CancellationToken token = CancellationToken.None;
     protected string? saveFolder;
     protected string? filePath;
@@ -31,7 +31,7 @@ public abstract class QuicPeer
     private bool controlReady = false;
     private bool fileReady = false;
 
-    public bool IsReceiver => isReceiver;
+    // public bool? IsReceiver => isReceiver;
 
     public void InitReceive(string folder)
     {
@@ -174,9 +174,10 @@ public abstract class QuicPeer
 
     public async Task StartSending()
     {
+        await WaitForStreamsAsync();
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
-        if (isReceiver)
+        if (isReceiver == true)
             throw new InvalidOperationException("InitSend cannot be called on a receiver.");
         
         var fileInfo = new FileInfo(filePath);
@@ -198,7 +199,7 @@ public abstract class QuicPeer
 
     public async Task StartReceiving()
     {
-        if (!isReceiver)
+        if (isReceiver != true)
             throw new InvalidOperationException("InitReceive must be called first.");
 
         if (controlStream == null || fileStream == null)
@@ -271,6 +272,8 @@ public abstract class QuicPeer
         Console.WriteLine($"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
         
         await QueueControlMessage("RECEIVED_FILE");
+        
+        // todo validate hash
     }
 
     protected async Task QueueControlMessage(string msg)
