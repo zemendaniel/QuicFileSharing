@@ -3,9 +3,6 @@ using System.Threading.Tasks;
 
 class QuicFileSharing
 {
-    public static int fileChunkSize = 16 * 1024 * 1024;
-    public static int messageChunkSize = 1024;
-    public static int fileBufferSize = 1014 * 1024;
     static async Task Main(string[] args)
     {
         if (args.Length == 0)
@@ -21,7 +18,7 @@ class QuicFileSharing
                 await server.StartAsync(5000);
                 //server.InitReceive("/root/file-test");
                 //await server.StartReceiving();
-                server.InitSend("/root/test.txt");
+                server.InitSend("/root/big.bin");
                 await server.StartSending();
                 await Task.Delay(-1);
                 break;

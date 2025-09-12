@@ -1,22 +1,20 @@
-using System;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Text;
 
 
 public class Client : QuicPeer
 {
-    public async Task StartAsync()
+    public override async Task StartAsync(int port = 5000)
     {
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 5000),
+            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
-                ApplicationProtocols = [new("fileShare")],
+                ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
                 TargetHost = "", 
                 RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true
             }
@@ -35,7 +33,6 @@ public class Client : QuicPeer
         fileStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
         await fileStream.WriteAsync(new byte[] { 0x02 }, token); 
         SetFileStream();
-        //_ = Task.Run(FileLoopAsync);
         
         _ = Task.Run(KeepAliveLoopAsync);
         
@@ -46,10 +43,11 @@ public class Client : QuicPeer
         {
             await Task.Delay(TimeSpan.FromSeconds(10), token);
             await QueueControlMessage("PING");
+            
         }
     }
 
-    public async Task StopAsync()
+    public override async Task StopAsync()
     {
         if (cts != null)
             await cts.CancelAsync(); 
@@ -59,10 +57,4 @@ public class Client : QuicPeer
 
         Console.WriteLine("Client stopped.");
     }
-
-    // private async Task TestAsync()
-    // {
-    //     Console.WriteLine("Sending");
-    //     await controlSendQueue.Writer.WriteAsync("123", token);
-    // }
 }

@@ -12,6 +12,7 @@ public class Server: QuicPeer
 
     private QuicListener? listener;
     private Task? acceptLoopTask;
+    private DateTime lastPongReceived = DateTime.UtcNow;
 
     private static X509Certificate2 CreateSelfSignedCertificate()
     {
@@ -27,7 +28,7 @@ public class Server: QuicPeer
         return request.CreateSelfSigned(notBefore, notAfter);
     }
 
-    public async Task StartAsync(int port = 5000)
+    public override async Task StartAsync(int port = 5000)
     {
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
@@ -56,6 +57,8 @@ public class Server: QuicPeer
     }
     private async Task AcceptConnectionsLoop()
     {
+        if (listener == null)
+            throw new InvalidOperationException("Listener not initialized.");
         try
         {
             while (!token.IsCancellationRequested)
@@ -73,6 +76,8 @@ public class Server: QuicPeer
 
     private async Task HandleConnectionAsync()
     {
+        if (connection == null)
+            throw new InvalidOperationException("Connection not initialized.");
         try
         {
             while (!token.IsCancellationRequested)
@@ -81,7 +86,7 @@ public class Server: QuicPeer
                 {
                     var stream = await connection.AcceptInboundStreamAsync(token);
                     var header = new byte[1];
-                    int bytesRead = await stream.ReadAsync(header.AsMemory(), token);
+                    var bytesRead = await stream.ReadAsync(header.AsMemory(), token);
                     if (bytesRead == 0)
                         continue;
                 
@@ -97,7 +102,6 @@ public class Server: QuicPeer
 
                         case 0x02:
                             fileStream = stream;     
-                            // _ = Task.Run(FileLoopAsync, token);
                             Console.WriteLine("Opened file stream");
                             SetFileStream();
                             break;
@@ -129,7 +133,7 @@ public class Server: QuicPeer
         }
     }
 
-    public async Task StopAsync()
+    public override async Task StopAsync()
     {
         if (cts != null)
             await cts.CancelAsync(); 
@@ -142,4 +146,6 @@ public class Server: QuicPeer
 
         Console.WriteLine("Server stopped.");
     }
+    // todo exit if ping timed out
+    // todo check file hash while sending/receiving
 }
