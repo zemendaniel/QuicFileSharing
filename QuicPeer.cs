@@ -31,7 +31,7 @@ public abstract class QuicPeer
     private bool fileReady;
     
     private DateTime? lastKeepAliveReceived;
-    protected static int connectionTimeout = 10;
+    protected static TimeSpan connectionTimeout = TimeSpan.FromSeconds(5);  // adjust if needed
     private static int fileChunkSize = 16 * 1024 * 1024;
     private static int messageChunkSize = 1024;
     private static int fileBufferSize = 1014 * 1024;
@@ -140,29 +140,8 @@ public abstract class QuicPeer
     {
         switch (line)
         {
-            case "PING":    // Server gets this
-                if (lastKeepAliveReceived == null)
-                    lastKeepAliveReceived = DateTime.UtcNow;
-                else if (lastKeepAliveReceived.Value.AddSeconds(connectionTimeout) < DateTime.UtcNow)
-                {
-                    await QueueControlMessage("PONG");
-                    lastKeepAliveReceived = DateTime.UtcNow;
-                }
-                else
-                {
-                    Console.WriteLine("Connection timed out, closing connection. (PING not received)");
-                    await StopAsync();
-                }
-                break;
-            case "PONG":    // Client gets this
-                if (lastKeepAliveReceived == null)
-                    lastKeepAliveReceived = DateTime.UtcNow;
-                else if (lastKeepAliveReceived.Value.AddSeconds(connectionTimeout) < DateTime.UtcNow)
-                {
-                    Console.WriteLine("Connection timed out, closing connection. (PONG not received)");
-                    await StopAsync();
-                }
-
+            case "PING":    // Both sides get this
+                lastKeepAliveReceived = DateTime.UtcNow;
                 break;
             case "READY":   // Receiver gets this
                 Console.WriteLine("Receiver is ready, starting file send...");
@@ -219,18 +198,6 @@ public abstract class QuicPeer
         
         await SendFileAsync();
     }
-
-    // public async Task StartReceiving()
-    // {
-    //     if (isReceiver != true)
-    //         throw new InvalidOperationException("InitReceive must be called first.");
-    // 
-    //     if (controlStream == null || fileStream == null)
-    //         await WaitForStreamsAsync(); 
-    //     
-    //     Console.WriteLine("Ready to receive file...");
-    // }
-
     
     private async Task SendFileAsync()
     {
@@ -313,7 +280,7 @@ public abstract class QuicPeer
         joinedFilePath = null;
     }
 
-    protected async Task QueueControlMessage(string msg)
+    private async Task QueueControlMessage(string msg)
     {
         await controlSendQueue.Writer.WriteAsync(msg, token);
     }
@@ -340,4 +307,27 @@ public abstract class QuicPeer
     }
     public abstract Task StartAsync(int port = 5000);
     public abstract Task StopAsync();
+    
+    protected async Task PingLoopAsync()
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(connectionTimeout, token);
+            await QueueControlMessage("PING");
+        }
+    }
+
+    protected async Task TimeoutCheckLoopAsync()
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            if (DateTime.UtcNow - lastKeepAliveReceived > connectionTimeout)
+            {
+                Console.WriteLine("[ERROR] Connection timed out.");
+                await StopAsync();
+                break;
+            }
+        }
+    }
 }

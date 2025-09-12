@@ -54,6 +54,10 @@ public class Server: QuicPeer
         
         acceptLoopTask = Task.Run(AcceptConnectionsLoop, token);
         
+        _ = Task.Run(PingLoopAsync, token);
+        _ = Task.Run(TimeoutCheckLoopAsync, token);
+
+        
     }
     private async Task AcceptConnectionsLoop()
     {
@@ -146,6 +150,5 @@ public class Server: QuicPeer
 
         Console.WriteLine("Server stopped.");
     }
-    // todo exit if ping timed out
     // todo check file hash while sending/receiving
 }

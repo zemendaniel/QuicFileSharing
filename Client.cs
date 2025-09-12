@@ -34,19 +34,12 @@ public class Client : QuicPeer
         await fileStream.WriteAsync(new byte[] { 0x02 }, token); 
         SetFileStream();
         
-        _ = Task.Run(KeepAliveLoopAsync);
+        _ = Task.Run(PingLoopAsync, token);
+        _ = Task.Run(TimeoutCheckLoopAsync, token);
+
         
     }
-    private async Task KeepAliveLoopAsync()
-    {
-        while (!token.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(10), token);
-            await QueueControlMessage("PING");
-            
-        }
-    }
-
+    
     public override async Task StopAsync()
     {
         if (cts != null)
