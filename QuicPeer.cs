@@ -205,7 +205,7 @@ public abstract class QuicPeer
             throw new InvalidOperationException("File stream not initialized.");
         
         var ioBuffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
-        var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(32)
+        var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
@@ -221,20 +221,21 @@ public abstract class QuicPeer
             bufferSize: fileBufferSize,
             useAsync: true
         );
-        
-        int bytesRead;
-        while ((bytesRead = await inputFile.ReadAsync(ioBuffer, token)) > 0)
+
+        var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
+        while (true)
         {
-            await fileStream.WriteAsync(ioBuffer.AsMemory(0, bytesRead), token);
-            
-            // we need to copy the chunk
-            var hashBuffer = ArrayPool<byte>.Shared.Rent(bytesRead);
-            Array.Copy(ioBuffer, hashBuffer, bytesRead); 
-            await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(hashBuffer, 0, bytesRead), token);
-            
+            var bytesRead = await inputFile.ReadAsync(buffer.AsMemory(0, fileChunkSize), token);
+            if (bytesRead == 0)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                break;
+            }
+
+            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+            await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
             Console.WriteLine($"Sent chunk: {bytesRead} bytes");
         }
-        ArrayPool<byte>.Shared.Return(ioBuffer, clearArray: true);
         
         hashQueue.Writer.Complete();
         var fileHash = await hashTask;
@@ -252,62 +253,66 @@ public abstract class QuicPeer
         
         if (joinedFilePath == null)
             throw new InvalidOperationException("Joined file path not initialized.");
-
-        var ioBuffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
+    
         long totalBytesReceived = 0;
         var fileSize = long.Parse(metadata["FileSize"]);
-        var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(32)
+        
+        var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
+        
         var hashTask = Task.Factory.StartNew(() => ComputeHashAsync(hashQueue), TaskCreationOptions.LongRunning)
             .Unwrap();
-        
-        await using (var outputFile = new FileStream(
-                         joinedFilePath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         bufferSize: fileChunkSize,
-                         useAsync: true))
+    
+        await using var outputFile = new FileStream(
+            joinedFilePath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: fileChunkSize,
+            useAsync: true);
+    
+        var stopwatch = Stopwatch.StartNew();
+    
+        var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
+        while (totalBytesReceived < fileSize)
         {
-            var stopwatch = Stopwatch.StartNew();
-            while (totalBytesReceived < fileSize)
+            // So we basically don't have to copy the chunk to a new buffer, we can just overwrite the existing one
+            // after we read it.
+            var bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, fileChunkSize), token);
+            if (bytesRead == 0)
             {
-                var bytesRead = await fileStream.ReadAsync(ioBuffer, token);
-                if (bytesRead == 0) break;
-                
-                await outputFile.WriteAsync(ioBuffer.AsMemory(0, bytesRead), token);
-                
-                var hashBuffer = ArrayPool<byte>.Shared.Rent(bytesRead);
-                Array.Copy(ioBuffer, hashBuffer, bytesRead);
-                await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(hashBuffer, 0, bytesRead), token);
-                
-                totalBytesReceived += bytesRead;
-                Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
+                ArrayPool<byte>.Shared.Return(buffer);
+                break;
             }
-            ArrayPool<byte>.Shared.Return(ioBuffer, clearArray: true);
-            hashQueue.Writer.Complete();
-            var fileHash = await hashTask;
-            Console.WriteLine(fileHash);
             
-            stopwatch.Stop();
-            await outputFile.FlushAsync(token);
-            
-            Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
-            Console.WriteLine(
-                $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
+            await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+    
+            await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
+    
+            totalBytesReceived += bytesRead;
+            Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
         }
-
+        
+        hashQueue.Writer.Complete();
+        
+        var fileHash = await hashTask;
+        Console.WriteLine($"SHA256: {fileHash}");
+    
+        stopwatch.Stop();
+        await outputFile.FlushAsync(token);
+    
+        Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
+        Console.WriteLine(
+            $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
+    
         await QueueControlMessage("RECEIVED_FILE");
-
-        // var actualHash = await ComputeHashAsync(joinedFilePath);
-        // var isValid = string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase);
-        // Console.WriteLine(isValid ? "File integrity confirmed." : "[ERROR] File integrity failed.");
-
+    
         metadata = null;
         joinedFilePath = null;
     }
+
 
     private async Task QueueControlMessage(string msg)
     {
