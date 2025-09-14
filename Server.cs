@@ -150,5 +150,4 @@ public class Server: QuicPeer
 
         Console.WriteLine("Server stopped.");
     }
-    // todo check file hash while sending/receiving
 }

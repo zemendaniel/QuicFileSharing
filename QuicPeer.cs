@@ -157,7 +157,7 @@ public abstract class QuicPeer
             default:
                 if (line != null && line.StartsWith("METADATA:"))
                 {
-                    // todo accept or reject file
+                    // Todo accept or reject file (enough after I've built the GUI)
                     if (saveFolder == null)
                         throw new InvalidOperationException("Save folder not initialized.");
                     var json = line["METADATA:".Length..];
@@ -172,6 +172,7 @@ public abstract class QuicPeer
                     Console.WriteLine($"Unknown control message: {line}");
                 }
                 break;
+            // Todo confirm hash
         }
     }
 
@@ -204,7 +205,6 @@ public abstract class QuicPeer
         if (fileStream == null) 
             throw new InvalidOperationException("File stream not initialized.");
         
-        var ioBuffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
         var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
             FullMode = BoundedChannelFullMode.Wait
@@ -222,9 +222,9 @@ public abstract class QuicPeer
             useAsync: true
         );
 
-        var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
         while (true)
         {
+            var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
             var bytesRead = await inputFile.ReadAsync(buffer.AsMemory(0, fileChunkSize), token);
             if (bytesRead == 0)
             {
@@ -275,11 +275,11 @@ public abstract class QuicPeer
     
         var stopwatch = Stopwatch.StartNew();
     
-        var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
         while (totalBytesReceived < fileSize)
         {
             // So we basically don't have to copy the chunk to a new buffer, we can just overwrite the existing one
             // after we read it.
+            var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
             var bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, fileChunkSize), token);
             if (bytesRead == 0)
             {
@@ -318,18 +318,48 @@ public abstract class QuicPeer
     {
         await controlSendQueue.Writer.WriteAsync(msg, token);
     }
+    // private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
+    // {
+    //     Console.WriteLine("Calculating hash...");
+    //     using var sha = SHA256.Create();
+    //     await foreach (var segment in hashQueue.Reader.ReadAllAsync(token))
+    //     {
+    //         sha.TransformBlock(segment.Array!, segment.Offset, segment.Count, null, 0);
+    //         ArrayPool<byte>.Shared.Return(segment.Array!);
+    //     }
+    //     sha.TransformFinalBlock([], 0, 0);
+    //     return Convert.ToHexStringLower(sha.Hash);
+    // }
+    // private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
+    // {
+    //     Console.WriteLine("Calculating hash...");
+    //     using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+    //
+    //     await foreach (var segment in hashQueue.Reader.ReadAllAsync(token))
+    //     {
+    //         hasher.AppendData(segment.Array!, segment.Offset, segment.Count);
+    //         ArrayPool<byte>.Shared.Return(segment.Array!);
+    //     }
+    //
+    //     var hash = hasher.GetHashAndReset();
+    //     return Convert.ToHexString(hash).ToLowerInvariant();
+    // }
     private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
     {
         Console.WriteLine("Calculating hash...");
-        using var sha = SHA256.Create();
+        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
         await foreach (var segment in hashQueue.Reader.ReadAllAsync(token))
         {
-            sha.TransformBlock(segment.Array!, segment.Offset, segment.Count, null, 0);
+            hasher.AppendData(segment.AsSpan());
             ArrayPool<byte>.Shared.Return(segment.Array!);
         }
-        sha.TransformFinalBlock([], 0, 0);
-        return Convert.ToHexStringLower(sha.Hash);
+
+        var hash = hasher.GetHashAndReset();
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+
     public abstract Task StartAsync(int port = 5000);
     public abstract Task StopAsync();
     
