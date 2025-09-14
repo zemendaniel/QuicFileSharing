@@ -31,10 +31,10 @@ public abstract class QuicPeer
     private bool fileReady;
     
     private DateTime? lastKeepAliveReceived;
-    protected static TimeSpan connectionTimeout = TimeSpan.FromSeconds(5);  // adjust if needed
-    private static int fileChunkSize = 16 * 1024 * 1024;
-    private static int messageChunkSize = 1024;
-    private static int fileBufferSize = 1014 * 1024;
+    private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15);  // adjust if needed
+    private static readonly int fileChunkSize = 16 * 1024 * 1024;
+    private static readonly int messageChunkSize = 1024;
+    private static readonly int fileBufferSize = 1014 * 1024;
 
     public void InitReceive(string folder)
     {
@@ -186,12 +186,10 @@ public abstract class QuicPeer
         var fileInfo = new FileInfo(filePath);
         var fileName = Path.GetFileName(filePath);
         var fileSize = fileInfo.Length;
-        var hash = await ComputeHashAsync(filePath);
         var meta = new Dictionary<string, string>
         {
             ["FileName"] = fileName,
-            ["FileSize"] = fileSize.ToString(),
-            ["FileHash"] = hash
+            ["FileSize"] = fileSize.ToString()
         };
         var json = System.Text.Json.JsonSerializer.Serialize(meta);
         await QueueControlMessage($"METADATA:{json}");
@@ -207,6 +205,12 @@ public abstract class QuicPeer
             throw new InvalidOperationException("File stream not initialized.");
         
         var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
+        var hashQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
+        {
+            FullMode = BoundedChannelFullMode.Wait
+        });
+        var hashTask = Task.Run(() => ComputeHashAsync(hashQueue), token);;
+        
         await using var inputFile = new FileStream(
             path: filePath,
             mode: FileMode.Open,
@@ -220,10 +224,19 @@ public abstract class QuicPeer
         while ((bytesRead = await inputFile.ReadAsync(buffer, token)) > 0)
         {
             await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+            
+            // we need to copy the chunk
+            var chunkCopy = new byte[bytesRead];
+            Array.Copy(buffer, chunkCopy, bytesRead);
+            await hashQueue.Writer.WriteAsync(chunkCopy, token);
+            
             Console.WriteLine($"Sent chunk: {bytesRead} bytes");
         }
         ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         
+        hashQueue.Writer.Complete();
+        var fileHash = await hashTask;
+        Console.WriteLine(fileHash);
         await QueueControlMessage("FILE_SENT");
     }
 
@@ -238,6 +251,15 @@ public abstract class QuicPeer
         if (joinedFilePath == null)
             throw new InvalidOperationException("Joined file path not initialized.");
 
+        var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
+        long totalBytesReceived = 0;
+        var fileSize = long.Parse(metadata["FileSize"]);
+        var hashQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
+        {
+            FullMode = BoundedChannelFullMode.Wait
+        });
+        var hashTask = Task.Run(() => ComputeHashAsync(hashQueue), token);;
+        
         await using (var outputFile = new FileStream(
                          joinedFilePath,
                          FileMode.Create,
@@ -246,35 +268,39 @@ public abstract class QuicPeer
                          bufferSize: fileChunkSize,
                          useAsync: true))
         {
-
-            var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
-            long totalBytesReceived = 0;
-            var fileSize = long.Parse(metadata["FileSize"]);
             var stopwatch = Stopwatch.StartNew();
             while (totalBytesReceived < fileSize)
             {
-                var bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, token);
+                var bytesRead = await fileStream.ReadAsync(buffer, token);
+                if (bytesRead == 0) break;
+                
                 await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+                
+                var chunkCopy = new byte[bytesRead];
+                Array.Copy(buffer, chunkCopy, bytesRead);
+                await hashQueue.Writer.WriteAsync(chunkCopy, token);
+                
                 totalBytesReceived += bytesRead;
                 Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
             }
-
-            stopwatch.Stop();
-            await outputFile.FlushAsync();
+            hashQueue.Writer.Complete();
+            var fileHash = await hashTask;
+            Console.WriteLine(fileHash);
             
+            stopwatch.Stop();
+            await outputFile.FlushAsync(token);
             ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            
             Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
             Console.WriteLine(
                 $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
         }
 
         await QueueControlMessage("RECEIVED_FILE");
-        
-        var expectedHash = metadata["FileHash"];
-        Console.WriteLine(joinedFilePath);
-        var actualHash = await ComputeHashAsync(joinedFilePath);
-        var isValid = string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase);
-        Console.WriteLine(isValid ? "File integrity confirmed." : "[ERROR] File integrity failed.");
+
+        // var actualHash = await ComputeHashAsync(joinedFilePath);
+        // var isValid = string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase);
+        // Console.WriteLine(isValid ? "File integrity confirmed." : "[ERROR] File integrity failed.");
 
         metadata = null;
         joinedFilePath = null;
@@ -284,24 +310,12 @@ public abstract class QuicPeer
     {
         await controlSendQueue.Writer.WriteAsync(msg, token);
     }
-    private async Task<string> ComputeHashAsync(string path)
+    private async Task<string> ComputeHashAsync(Channel<byte[]> hashQueue)
     {
         Console.WriteLine("Calculating hash...");
         using var sha = SHA256.Create();
-        await using var stream = File.OpenRead(path);
-        var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024 * 100);
-        int bytesRead;
-
-        long total = 0;
-        while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), token)) > 0)
-        {
-            sha.TransformBlock(buffer, 0, bytesRead, null, 0);
-            total += bytesRead;
-            if (total % (1024 * 1024 * 100) == 0) 
-                Console.WriteLine($"Hashed {total / (1024 * 1024)} MB so far...");
-        }
-
-        ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        await foreach (var chunk in hashQueue.Reader.ReadAllAsync(token))
+            sha.TransformBlock(chunk, 0, chunk.Length, null, 0);
         sha.TransformFinalBlock([], 0, 0);
         return Convert.ToHexStringLower(sha.Hash);
     }
