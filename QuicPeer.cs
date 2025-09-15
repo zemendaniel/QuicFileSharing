@@ -27,6 +27,7 @@ public abstract class QuicPeer
     private Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
     
@@ -140,6 +141,8 @@ public abstract class QuicPeer
     {
         switch (line)
         {
+            case null:
+                break;
             case "PING":    // Both sides get this
                 lastKeepAliveReceived = DateTime.UtcNow;
                 break;
@@ -147,32 +150,47 @@ public abstract class QuicPeer
                 Console.WriteLine("Receiver is ready, starting file send...");
                 _ = Task.Run(SendFileAsync, token);
                 break;
-            case "RECEIVED_FILE":   // Sender gets this
-                Console.WriteLine("Receiver confirmed file was received.");
+            case var s when line.StartsWith("RECEIVED_FILE:"):   // Sender gets this
+                var status = line["RECEIVED_FILE:".Length..];
+                switch (status)
+                {
+                    case "OK":
+                        Console.WriteLine("Receiver confirmed file was received successfully.");
+                        break;
+                    case "FAILED":
+                        Console.WriteLine("Receiver did not receive the file successfully (integrity check failed).");
+                        break;
+                    default:
+                        Console.WriteLine($"Unknown status: {status}");
+                        break;
+                }
                 isReceiver = false;
                 break;
-            case "FILE_SENT":   // Receiver gets this
+            case var s when line.StartsWith("METADATA:"):
+                // Todo accept or reject file (enough after I've built the GUI)
+                if (saveFolder == null)
+                    throw new InvalidOperationException("Save folder not initialized.");
+                var json = line["METADATA:".Length..];
+                metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)!;
+                Console.WriteLine($"Received metadata: {string.Join(", ", metadata)}");
+                joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
+                fileHashReady = new TaskCompletionSource<string>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                await QueueControlMessage("READY");
+                _ = Task.Run(ReceiveFileAsync, token);
+                break;
+            case var s when line.StartsWith("FILE_SENT:"):   // Receiver gets this
                 Console.WriteLine("Sender confirmed file was sent.");
+                if (fileHashReady == null)
+                    throw new InvalidOperationException("File hash ready not initialized.");
+                var hash = line["FILE_SENT:".Length..];
+                Console.WriteLine($"Received file hash: {hash}");
+                fileHashReady.SetResult(hash);
                 break;
             default:
-                if (line != null && line.StartsWith("METADATA:"))
-                {
-                    // Todo accept or reject file (enough after I've built the GUI)
-                    if (saveFolder == null)
-                        throw new InvalidOperationException("Save folder not initialized.");
-                    var json = line["METADATA:".Length..];
-                    metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)!;
-                    Console.WriteLine($"Received metadata: {string.Join(", ", metadata)}");
-                    joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
-                    await QueueControlMessage("READY");
-                    _ = Task.Run(ReceiveFileAsync, token);
-                }
-                else
-                {
-                    Console.WriteLine($"Unknown control message: {line}");
-                }
+                Console.WriteLine($"Unknown control message: {line}");
                 break;
-            // Todo confirm hash
+            //  confirm hash
         }
     }
 
@@ -194,8 +212,6 @@ public abstract class QuicPeer
         };
         var json = System.Text.Json.JsonSerializer.Serialize(meta);
         await QueueControlMessage($"METADATA:{json}");
-        
-        await SendFileAsync();
     }
     
     private async Task SendFileAsync()
@@ -240,7 +256,7 @@ public abstract class QuicPeer
         hashQueue.Writer.Complete();
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
-        await QueueControlMessage("FILE_SENT");
+        await QueueControlMessage($"FILE_SENT:{fileHash}");
     }
 
     private async Task ReceiveFileAsync()
@@ -297,20 +313,31 @@ public abstract class QuicPeer
         
         hashQueue.Writer.Complete();
         
-        var fileHash = await hashTask;
-        Console.WriteLine($"SHA256: {fileHash}");
+        var actualFileHash = await hashTask;
+        Console.WriteLine($"SHA256: {actualFileHash}");
     
         stopwatch.Stop();
         await outputFile.FlushAsync(token);
+        
+        var expectedFileHash = await fileHashReady!.Task;
+        if (actualFileHash != expectedFileHash)
+        {
+            Console.WriteLine("[ERROR] File integrity check failed.");
+            await QueueControlMessage("RECEIVED_FILE:FAILED");
+        }
+        else
+        {
+            Console.WriteLine("[SUCCESS] File received successfully.");
+            await QueueControlMessage("RECEIVED_FILE:OK");
+        }
     
-        Console.WriteLine($"File received and saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
+        Console.WriteLine($"File was saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine(
             $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
-    
-        await QueueControlMessage("RECEIVED_FILE");
-    
+        
         metadata = null;
         joinedFilePath = null;
+        fileHashReady = null;
     }
 
 
@@ -318,32 +345,7 @@ public abstract class QuicPeer
     {
         await controlSendQueue.Writer.WriteAsync(msg, token);
     }
-    // private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
-    // {
-    //     Console.WriteLine("Calculating hash...");
-    //     using var sha = SHA256.Create();
-    //     await foreach (var segment in hashQueue.Reader.ReadAllAsync(token))
-    //     {
-    //         sha.TransformBlock(segment.Array!, segment.Offset, segment.Count, null, 0);
-    //         ArrayPool<byte>.Shared.Return(segment.Array!);
-    //     }
-    //     sha.TransformFinalBlock([], 0, 0);
-    //     return Convert.ToHexStringLower(sha.Hash);
-    // }
-    // private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
-    // {
-    //     Console.WriteLine("Calculating hash...");
-    //     using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-    //
-    //     await foreach (var segment in hashQueue.Reader.ReadAllAsync(token))
-    //     {
-    //         hasher.AppendData(segment.Array!, segment.Offset, segment.Count);
-    //         ArrayPool<byte>.Shared.Return(segment.Array!);
-    //     }
-    //
-    //     var hash = hasher.GetHashAndReset();
-    //     return Convert.ToHexString(hash).ToLowerInvariant();
-    // }
+    
     private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
     {
         Console.WriteLine("Calculating hash...");
