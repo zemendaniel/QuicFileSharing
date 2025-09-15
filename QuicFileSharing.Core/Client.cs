@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
 
+namespace QuicFileSharing.Core;
 
 public class Client : QuicPeer
 {

@@ -7,6 +7,8 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
+namespace QuicFileSharing.Core;
+
 public class Server: QuicPeer
 {
 

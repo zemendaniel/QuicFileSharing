@@ -6,6 +6,9 @@ using System.Buffers.Binary;
 using System.Threading.Channels;
 using System.Security.Cryptography;
 
+namespace QuicFileSharing.Core;
+
+
 public abstract class QuicPeer
 {
     protected QuicConnection? connection;

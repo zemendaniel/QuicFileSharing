@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Threading.Tasks;
 
+namespace QuicFileSharing.Core;
+
 class QuicFileSharing
 {
     static async Task Main(string[] args)
@@ -18,7 +20,8 @@ class QuicFileSharing
                 await server.StartAsync(5000);
                 //server.InitReceive("/root/file-test");
                 //await server.StartReceiving();
-                server.InitSend("/root/big.bin");
+                //server.InitSend("/root/big.bin");
+                server.InitSend("/home/zemen/a.txt");
                 await server.StartSending();
                 await Task.Delay(-1);
                 break;
@@ -28,7 +31,8 @@ class QuicFileSharing
                 await client.StartAsync();
                 //client.InitSend("/root/test.txt");
                 //await client.StartSending();
-                client.InitReceive("/root/file-test");
+                //client.InitReceive("/root/file-test");
+                client.InitReceive("/home/zemen/test");
                 //await client.StartReceiving();
                 await Task.Delay(-1);
                 break;
