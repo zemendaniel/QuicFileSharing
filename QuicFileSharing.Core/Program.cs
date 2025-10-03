@@ -5,7 +5,7 @@ namespace QuicFileSharing.Core;
 
 class QuicFileSharing
 {
-    static async Task Main(string[] args)
+    public static async Task Main(string[] args)
     {
         if (args.Length == 0)
         {
@@ -16,24 +16,34 @@ class QuicFileSharing
         switch (args[0].ToLower())
         {
             case "server":
+                var serverSignaling = new WebSocketSignaling("ws://vps.zemendaniel.hu:8080", Role.Server);
+                serverSignaling.OnMessageReceived += message =>
+                {
+                    Console.WriteLine("Received message from signaling server:");
+                    Console.WriteLine(message);
+                };
+                serverSignaling.OnDisconnected += (reason, description) =>
+                {
+                    Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
+                };
+                await serverSignaling.ConnectAsync();
+
+                
                 var server = new Server();
                 await server.StartAsync(5000);
-                //server.InitReceive("/root/file-test");
-                //await server.StartReceiving();
-                //server.InitSend("/root/big.bin");
                 server.InitSend("/home/zemen/a.txt");
                 await server.StartSending();
                 await Task.Delay(-1);
                 break;
 
             case "client":
+                var clientSignaling = new WebSocketSignaling("ws://vps.zemendaniel.hu:8080", Role.Client);
+                Console.WriteLine("Room ID:");
+                var roomId = Console.ReadLine()!.Trim();
+                await clientSignaling.ConnectAsync(roomId);
                 var client = new Client();
                 await client.StartAsync();
-                //client.InitSend("/root/test.txt");
-                //await client.StartSending();
-                //client.InitReceive("/root/file-test");
                 client.InitReceive("/home/zemen/test");
-                //await client.StartReceiving();
                 await Task.Delay(-1);
                 break;
 
