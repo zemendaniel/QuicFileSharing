@@ -21,13 +21,12 @@ class Answer
     public required string Thumbprint { get; init; }
 }
 
-public delegate Task HolePunchingDelegate(IPAddress peerIp, int peerPort);
-
 class SignalingUtils
 {
     public IPAddress? ChosenPeerIp { get; private set; }
     private IPAddress? ChosenOwnIp { get; set; }
     public int ChosenPeerPort { get; private set; }
+    public int ChosenOwnPort { get; private set; }
     public static async Task<string> ConstructOfferAsync(string nickname)
     {
         var ipv4Task = GetPublicIpv4Async();
@@ -44,8 +43,7 @@ class SignalingUtils
         Console.WriteLine(json);
         return json;
     }
-    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token, string nickname, 
-        HolePunchingDelegate holePunchingCallback)
+    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token, string nickname)
     {
         var offer = System.Text.Json.JsonSerializer.Deserialize<Offer>(offerJson);
         if (offer == null)
@@ -72,16 +70,20 @@ class SignalingUtils
         else
             throw new InvalidOperationException("No compatible IP address found.");
         
+        ChosenOwnPort = GetFreeUdpPortAsync();
+        
         var answer = new Answer
         {
             Ip = ChosenOwnIp,
-            Port = GetFreeUdpPortAsync(),
+            Port = ChosenOwnPort,
             Thumbprint = thumbprint,
             Token = token,
             Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname
         };
         var json = System.Text.Json.JsonSerializer.Serialize(answer);
-        await holePunchingCallback(ChosenPeerIp, offer.Port);
+        
+        await PunchUdpHoleAsync(ChosenPeerIp, ChosenPeerPort, ChosenOwnPort);
+        
         Console.WriteLine(json);
         return json;
     }
@@ -131,5 +133,18 @@ class SignalingUtils
             // Ignore
         }
         return null;
+    }
+
+    private static async Task PunchUdpHoleAsync(IPAddress peerIp, int peerPort, int localPort)
+    {
+        var localEndpoint = peerIp.AddressFamily == AddressFamily.InterNetworkV6 ? new IPEndPoint(IPAddress.IPv6Any, localPort) : new IPEndPoint(IPAddress.Any, localPort);
+        var remoteEndpoint = new IPEndPoint(peerIp, peerPort);
+        using var udp = new UdpClient(localEndpoint);
+        
+        List<Task> tasks = [];
+        for (var i = 0; i < 5; i++)
+            tasks.Add(udp.SendAsync([], 0, remoteEndpoint));
+        
+        await Task.WhenAll(tasks);
     }
 }

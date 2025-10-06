@@ -1,25 +1,45 @@
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace QuicFileSharing.Core;
 
 public class Client : QuicPeer
 {
-    public override async Task StartAsync(int port = 5000)
+    public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort,
+        string _connToken, string expectedThumbprint, string _nickname = "Anonymous")
     {
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+            RemoteEndPoint = new IPEndPoint(remoteAddress, remotePort),
+            LocalEndPoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback, localPort),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
                 TargetHost = "", 
-                RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true
+                RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) =>
+                {
+                    if (certificate is X509Certificate2 cert)
+                    {
+                        var actualThumbprint = cert.Thumbprint; 
+
+                        Console.WriteLine($"Server certificate thumbprint: {actualThumbprint}");
+
+                        if (string.Equals(actualThumbprint, expectedThumbprint, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true; // Accept
+                        }
+                    }
+                    // Reject
+                    return false;
+                }
             }
         };
+        nickname = _nickname;
+        connToken = _connToken;
         connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
         Console.WriteLine($"Connected to {connection.RemoteEndPoint}");
         

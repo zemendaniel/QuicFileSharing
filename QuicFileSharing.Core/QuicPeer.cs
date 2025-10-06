@@ -3,6 +3,7 @@ using System.Text;
 using System.Diagnostics;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Net;
 using System.Threading.Channels;
 using System.Security.Cryptography;
 
@@ -33,6 +34,8 @@ public abstract class QuicPeer
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
+    protected string nickname;
+    protected string connToken;
     
     private DateTime? lastKeepAliveReceived;
     private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15);  // adjust if needed
@@ -365,7 +368,8 @@ public abstract class QuicPeer
     }
 
 
-    public abstract Task StartAsync(int port = 5000);
+    //public abstract Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, 
+     //   string nickname = "Anonymous", string connToken = "", string thumbprint = "");
     public abstract Task StopAsync();
     
     protected async Task PingLoopAsync()

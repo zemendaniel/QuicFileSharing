@@ -26,12 +26,16 @@ public class Server: QuicPeer
             RSASignaturePadding.Pkcs1
         );
         var notBefore = DateTime.UtcNow;
-        var notAfter = notBefore.AddYears(1);
-        return request.CreateSelfSigned(notBefore, notAfter);
+        var notAfter = notBefore.AddYears(100);
+        var cert = request.CreateSelfSigned(notBefore, notAfter);
+        Console.WriteLine(cert.Thumbprint);
+        return cert;
     }
 
-    public override async Task StartAsync(int port = 5000)
+    public async Task StartAsync(bool isIpv6, int localPort, string _nickname = "Anonymous")
     {
+        nickname = _nickname;
+        var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback, localPort);
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
             DefaultStreamErrorCode = 0x0A,
@@ -45,11 +49,11 @@ public class Server: QuicPeer
 
         listener = await QuicListener.ListenAsync(new QuicListenerOptions
         {
-            ListenEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+            ListenEndPoint = listenEndpoint,
             ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(serverConnectionOptions)
         });
-        Console.WriteLine($"Server listening on 127.0.0.1:{port}");
+        Console.WriteLine($"Server listening on {listenEndpoint.Address}:{localPort}");
         
         cts = new CancellationTokenSource();
         token = cts.Token;
