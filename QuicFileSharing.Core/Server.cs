@@ -43,7 +43,7 @@ public class Server: QuicPeer
         var notBefore = DateTime.UtcNow;
         var notAfter = notBefore.AddYears(100);
         var cert = request.CreateSelfSigned(notBefore, notAfter);
-        Console.WriteLine(cert.Thumbprint);
+        // Console.WriteLine(cert.Thumbprint);
         return cert;
     }
 

@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuicFileSharing.GUI", "Quic
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuicFileSharing.Core", "QuicFileSharing.Core\QuicFileSharing.Core.csproj", "{8EC1DA66-211F-432D-84B7-470DF868D54D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuicFileSharing.Console", "QuicFileSharing.Console\QuicFileSharing.Console.csproj", "{B1AE306B-4B7B-47C1-9DB6-3CC70CEF6000}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuicFileSharing.Cli", "QuicFileSharing.Cli\QuicFileSharing.Cli.csproj", "{B1AE306B-4B7B-47C1-9DB6-3CC70CEF6000}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

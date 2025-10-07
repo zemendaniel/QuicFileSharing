@@ -2,8 +2,13 @@
 
 namespace QuicFileSharing.Core;
 
-class QuicFileSharing
+public class QuicFileSharing
 {
+    private static readonly JsonSerializerOptions options = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    };
+    
     public static async Task Start(Role role, string wsBaseUri, string nickname = "Anonymous", string roomId = "")
     {
         WebSocketSignaling signaling;
@@ -15,25 +20,19 @@ class QuicFileSharing
         {
             case Role.Server:
                 signaling = new WebSocketSignaling(wsBaseUri, Role.Server);
-                success = await signaling.ConnectAsync();
-                if (!success)
-                {
-                    Console.WriteLine("Failed to connect to signaling server.");
-                    return;
-                }
                 peer = new Server();
                 var server = peer as Server;
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
-                    msg = JsonSerializer.Deserialize<SignalingMessage>(message);
+                    msg = JsonSerializer.Deserialize<SignalingMessage>(message, options);
                     if (msg == null) return;
                     switch (msg.Type)
                     {
                         case "room_info":
                             var info = JsonSerializer.Deserialize<RoomInfo>(msg.Data);
                             if (info is null) return;
-                            Console.WriteLine(info.RoomId);
+                            Console.WriteLine(info.id);
                             break;
                         case "offer":
                             var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint,
@@ -43,6 +42,12 @@ class QuicFileSharing
                             break;
                     }
                 };
+                success = await signaling.ConnectAsync();
+                if (!success)
+                {
+                    Console.WriteLine("Failed to connect to signaling server.");
+                    return;
+                }
                 signaling.OnDisconnected += (reason, description) =>
                 {
                     Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
@@ -63,13 +68,12 @@ class QuicFileSharing
                     Console.WriteLine("Failed to connect to signaling server.");
                     return;
                 }
-                await signaling.ConnectAsync(roomId);
                 peer = new Client();
                 var client = (peer as Client)!;
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
-                    msg = JsonSerializer.Deserialize<SignalingMessage>(message);
+                    msg = JsonSerializer.Deserialize<SignalingMessage>(message, options);                    
                     if (msg == null) return;
                     switch (msg.Type)
                     {

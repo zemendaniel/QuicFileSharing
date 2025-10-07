@@ -23,8 +23,8 @@ class Answer
 
 class RoomInfo
 {
-    public required string RoomId { get; init; } 
-    public required int ExpirySeconds { get; init; }
+    public required string id { get; init; } 
+    public required int ex { get; init; }
 }
 
 class SignalingMessage

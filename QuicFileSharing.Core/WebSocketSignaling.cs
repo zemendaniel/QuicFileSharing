@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace QuicFileSharing.Core;
 
-enum Role
+public enum Role
 {
     Server,
     Client
@@ -78,6 +78,7 @@ class WebSocketSignaling : IDisposable
             try
             {
                 var result = await ws.ReceiveAsync(buffer, cts.Token);
+                Console.WriteLine($"Received frame: type={result.MessageType}, count={result.Count}");
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
