@@ -10,14 +10,14 @@ class Offer
     public string? Ipv4 { get; init; }
     public string? Ipv6 { get; init; }
     public required int Port { get; init; }
-    public string Nickname { get; init; } = "Anonymous";
+    // public string Nickname { get; init; } = "Anonymous";
 }
 
 class Answer
 {
     public required string Ip { get; init; }
     public required int Port { get; init; }
-    public string Nickname { get; init; } = "Anonymous";
+    // public string Nickname { get; init; } = "Anonymous";
     public required string Token { get; init; }
     public required string Thumbprint { get; init; }
 }
@@ -43,7 +43,7 @@ class SignalingUtils
     public bool IsIpv6 { get; private set; } 
     public string? Token { get; private set; }
     public string? Thumbprint { get; private set; }
-    public async Task<string> ConstructOfferAsync(string nickname)
+    public async Task<string> ConstructOfferAsync()
     {
         var ipv4Task = GetPublicIpv4Async();
         var ipv6Task = GetPublicIpv6Async();
@@ -53,14 +53,14 @@ class SignalingUtils
         {
             Ipv4 = ipv4Task.Result?.ToString(),
             Ipv6 = ipv6Task.Result?.ToString(),
-            Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname,
+            // Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname,
             Port = ChosenOwnPort
         };
         var json = JsonSerializer.Serialize(offer);
         Console.WriteLine(json);
         return json;
     }
-    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token, string nickname)
+    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token)
     {
         var offer = JsonSerializer.Deserialize<Offer>(offerJson) ?? throw new ArgumentException("Invalid offer JSON");
         
@@ -97,8 +97,8 @@ class SignalingUtils
             Ip = ChosenOwnIp.ToString(),
             Port = ChosenOwnPort,
             Thumbprint = thumbprint,
-            Token = token,
-            Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname
+            Token = token
+            // Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname
         };
         var json = JsonSerializer.Serialize(answer);
         

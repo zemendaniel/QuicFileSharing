@@ -9,7 +9,7 @@ public class QuicFileSharing
         PropertyNameCaseInsensitive = true
     };
     
-    public static async Task Start(Role role, string wsBaseUri, string nickname = "Anonymous", string roomId = "")
+    public static async Task Start(Role role, string wsBaseUri, string roomId = "")
     {
         WebSocketSignaling signaling;
         QuicPeer peer;
@@ -35,10 +35,9 @@ public class QuicFileSharing
                             Console.WriteLine(info.id);
                             break;
                         case "offer":
-                            var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint,
-                                server.ConnToken, nickname);
+                            var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint, server.ConnToken);
                             await signaling.SendAsync(answer, "answer");
-                            await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, nickname);
+                            await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort);
                             break;
                     }
                 };
@@ -81,7 +80,7 @@ public class QuicFileSharing
                             utils.ProcessAnswer(msg.Data);
                             await signaling.CloseAsync();
                             await client.StartAsync(utils.ChosenPeerIp, utils.ChosenPeerPort, utils.IsIpv6,
-                                utils.ChosenOwnPort, utils.Token, utils.Thumbprint, nickname);
+                                utils.ChosenOwnPort, utils.Token, utils.Thumbprint);
                             break;
                     }
                 };
@@ -90,7 +89,7 @@ public class QuicFileSharing
                     Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
                 };
 
-                var offer = await utils.ConstructOfferAsync(nickname);
+                var offer = await utils.ConstructOfferAsync();
                 await signaling.SendAsync(offer, "offer");
                 
                 //client.InitReceive("/home/zemen/test");
