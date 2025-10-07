@@ -21,12 +21,25 @@ class Answer
     public required string Thumbprint { get; init; }
 }
 
+class RoomInfo
+{
+    public required string RoomId { get; init; } 
+    public required int ExpirySeconds { get; init; }
+}
+
+class SignalingMessage
+{
+    public required string Type { get; init; } 
+    public required string Data { get; init; }
+}
+
 class SignalingUtils
 {
     public IPAddress? ChosenPeerIp { get; private set; }
     private IPAddress? ChosenOwnIp { get; set; }
     public int ChosenPeerPort { get; private set; }
     public int ChosenOwnPort { get; private set; }
+    public bool IsIpv6 { get; private set; } 
     public static async Task<string> ConstructOfferAsync(string nickname)
     {
         var ipv4Task = GetPublicIpv4Async();
@@ -59,6 +72,7 @@ class SignalingUtils
         {
             ChosenPeerIp = offer.Ipv6;
             ChosenOwnIp = ipv6;
+            IsIpv6 = true;
             Console.WriteLine("Using IPv6");
         }
         else if (offer.Ipv4 is not null && ipv4 is not null)

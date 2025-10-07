@@ -42,7 +42,15 @@ class WebSocketSignaling : IDisposable
         }
 
         var uri = new Uri(uriBuilder.ToString());
-        await ws.ConnectAsync(uri, cts.Token);
+        try
+        {
+            await ws.ConnectAsync(uri, cts.Token);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
 
         receiveTask = Task.Run(ReceiveAsync, cts.Token);
     }

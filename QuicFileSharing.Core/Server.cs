@@ -1,7 +1,4 @@
-using System.Buffers;
-using System.Diagnostics;
 using System.Net;
-using System.Text;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Security.Cryptography;
@@ -13,8 +10,26 @@ public class Server: QuicPeer
 {
 
     private QuicListener? listener;
-    private Task? acceptLoopTask;
-    private DateTime lastPongReceived = DateTime.UtcNow;
+    // private Task? acceptLoopTask;
+    // private DateTime lastPongReceived = DateTime.UtcNow;
+    
+    private readonly X509Certificate2 cert = CreateSelfSignedCertificate();
+    public string ConnToken => connToken;
+    public string Thumbprint => cert.Thumbprint;
+
+    public Server()
+    {
+        connToken = Generate();
+    }
+    
+    private static string Generate(int byteLength = 32)
+    {
+        var bytes = new byte[byteLength];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(bytes);
+
+        return Convert.ToBase64String(bytes);
+    }
 
     private static X509Certificate2 CreateSelfSignedCertificate()
     {
@@ -32,9 +47,9 @@ public class Server: QuicPeer
         return cert;
     }
 
-    public async Task StartAsync(bool isIpv6, int localPort, string _nickname = "Anonymous")
+    public async Task StartAsync(bool isIpv6, int localPort, string name = "Anonymous")
     {
-        nickname = _nickname;
+        nickname = name;
         var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback, localPort);
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
@@ -43,7 +58,7 @@ public class Server: QuicPeer
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
                 ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
-                ServerCertificate = CreateSelfSignedCertificate()
+                ServerCertificate = cert
             }
         };
 
@@ -58,7 +73,7 @@ public class Server: QuicPeer
         cts = new CancellationTokenSource();
         token = cts.Token;
         
-        acceptLoopTask = Task.Run(AcceptConnectionsLoop, token);
+        _ = Task.Run(AcceptConnectionsLoop, token);
         
         _ = Task.Run(PingLoopAsync, token);
         _ = Task.Run(TimeoutCheckLoopAsync, token);
