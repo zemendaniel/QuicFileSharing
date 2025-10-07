@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 
 namespace QuicFileSharing.Core;
 
@@ -27,7 +28,7 @@ class WebSocketSignaling : IDisposable
         ws = new ClientWebSocket();
     }
 
-    public async Task ConnectAsync(string? roomId = null)
+    public async Task<bool> ConnectAsync(string? roomId = null)
     {
         if (ws is not { State: WebSocketState.None })
             throw new InvalidOperationException("WebSocket already connected or disposed");
@@ -45,14 +46,24 @@ class WebSocketSignaling : IDisposable
         try
         {
             await ws.ConnectAsync(uri, cts.Token);
+            receiveTask = Task.Run(ReceiveAsync, cts.Token);
+            return true;
         }
-        catch (Exception e)
+        catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
         {
-            Console.WriteLine(e);
-            throw;
+            Console.WriteLine("WebSocket closed prematurely: " + ex.Message);
+            return false;
         }
-
-        receiveTask = Task.Run(ReceiveAsync, cts.Token);
+        catch (WebSocketException ex)
+        {
+            Console.WriteLine($"WebSocket error: {ex.WebSocketErrorCode} - {ex.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unexpected exception while connecting: {ex}");
+            return false;
+        }
     }
 
     private async Task ReceiveAsync()
@@ -106,12 +117,19 @@ class WebSocketSignaling : IDisposable
         }
     }
 
-    public async Task SendAsync(string message)
+    public async Task SendAsync(string message, string type)
     {
         if (ws is not { State: WebSocketState.Open })
             throw new InvalidOperationException("WebSocket not connected");
 
-        var bytes = Encoding.UTF8.GetBytes(message);
+        var msg = new SignalingMessage
+        {
+            Type = type,
+            Data = message
+        };
+        var json = JsonSerializer.Serialize(msg);
+
+        var bytes = Encoding.UTF8.GetBytes(json);
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
         Console.WriteLine($"[OUT] {message}");
     }

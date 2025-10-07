@@ -40,17 +40,20 @@ class SignalingUtils
     public int ChosenPeerPort { get; private set; }
     public int ChosenOwnPort { get; private set; }
     public bool IsIpv6 { get; private set; } 
-    public static async Task<string> ConstructOfferAsync(string nickname)
+    public string? Token { get; private set; }
+    public string? Thumbprint { get; private set; }
+    public async Task<string> ConstructOfferAsync(string nickname)
     {
         var ipv4Task = GetPublicIpv4Async();
         var ipv6Task = GetPublicIpv6Async();
         await Task.WhenAll(ipv4Task, ipv6Task);
+        ChosenOwnPort = GetFreeUdpPortAsync();
         var offer = new Offer
         {
             Ipv4 = ipv4Task.Result,
             Ipv6 = ipv6Task.Result,
             Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname,
-            Port = GetFreeUdpPortAsync()
+            Port = ChosenOwnPort
         };
         var json = System.Text.Json.JsonSerializer.Serialize(offer);
         Console.WriteLine(json);
@@ -85,6 +88,7 @@ class SignalingUtils
             throw new InvalidOperationException("No compatible IP address found.");
         
         ChosenOwnPort = GetFreeUdpPortAsync();
+        ChosenPeerPort = offer.Port;
         
         var answer = new Answer
         {
@@ -108,6 +112,9 @@ class SignalingUtils
             throw new ArgumentException("Invalid answer JSON");
         ChosenPeerIp = answer.Ip;
         ChosenPeerPort = answer.Port;
+        Token = answer.Token;
+        Thumbprint = answer.Thumbprint;
+        IsIpv6 = answer.Ip.AddressFamily == AddressFamily.InterNetworkV6;
         Console.WriteLine($"Chosen peer IP: {ChosenPeerIp}");
     }
     private static int GetFreeUdpPortAsync()

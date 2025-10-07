@@ -8,30 +8,37 @@ class QuicFileSharing
     {
         WebSocketSignaling signaling;
         QuicPeer peer;
+        bool success;
+        SignalingMessage? msg;
+        var utils = new SignalingUtils();
         switch (role)
         {
             case Role.Server:
                 signaling = new WebSocketSignaling(wsBaseUri, Role.Server);
-                await signaling.ConnectAsync();
+                success = await signaling.ConnectAsync();
+                if (!success)
+                {
+                    Console.WriteLine("Failed to connect to signaling server.");
+                    return;
+                }
                 peer = new Server();
                 var server = peer as Server;
-                var utils = new SignalingUtils();
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
-                    var msg = JsonSerializer.Deserialize<SignalingMessage>(message);
+                    msg = JsonSerializer.Deserialize<SignalingMessage>(message);
                     if (msg == null) return;
                     switch (msg.Type)
                     {
                         case "room_info":
                             var info = JsonSerializer.Deserialize<RoomInfo>(msg.Data);
-                            if (info == null) return;
+                            if (info is null) return;
                             Console.WriteLine(info.RoomId);
                             break;
                         case "offer":
                             var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint,
                                 server.ConnToken, nickname);
-                            await signaling.SendAsync(answer);
+                            await signaling.SendAsync(answer, "answer");
                             await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, nickname);
                             break;
                     }
@@ -50,12 +57,37 @@ class QuicFileSharing
                 signaling = new WebSocketSignaling(wsBaseUri, Role.Client);
                 if (string.IsNullOrWhiteSpace(roomId))
                     throw new ArgumentException("Client must provide room id");
+                success = await signaling.ConnectAsync(roomId);
+                if (!success)
+                {
+                    Console.WriteLine("Failed to connect to signaling server.");
+                    return;
+                }
                 await signaling.ConnectAsync(roomId);
-                Console.WriteLine("Room ID:");
-                //var roomId = Console.ReadLine()!.Trim();
-                await signaling.ConnectAsync(roomId);
-                var client = new Client();
-                // await client.StartAsync(); todo
+                peer = new Client();
+                var client = (peer as Client)!;
+                signaling.OnMessageReceived += async message =>
+                {
+                    Console.WriteLine(message);
+                    msg = JsonSerializer.Deserialize<SignalingMessage>(message);
+                    if (msg == null) return;
+                    switch (msg.Type)
+                    {
+                        case "answer":
+                            utils.ProcessAnswer(msg.Data);
+                            await client.StartAsync(utils.ChosenPeerIp, utils.ChosenPeerPort, utils.IsIpv6,
+                                utils.ChosenOwnPort, utils.Token, utils.Thumbprint, nickname);
+                            break;
+                    }
+                };
+                signaling.OnDisconnected += (reason, description) =>
+                {
+                    Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
+                };
+
+                var offer = await utils.ConstructOfferAsync(nickname);
+                await signaling.SendAsync(offer, "offer");
+                
                 client.InitReceive("/home/zemen/test");
                 await Task.Delay(-1);
                 break;
