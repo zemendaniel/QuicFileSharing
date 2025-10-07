@@ -4,7 +4,7 @@ namespace QuicFileSharing.Core;
 
 public class QuicFileSharing
 {
-    private static readonly JsonSerializerOptions options = new JsonSerializerOptions
+    private static readonly JsonSerializerOptions options = new()
     {
         PropertyNameCaseInsensitive = true
     };
@@ -53,8 +53,8 @@ public class QuicFileSharing
                     Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
                 };
                 
-                peer.InitSend("/home/zemen/a.txt");
-                await peer.StartSending();
+                // peer.InitSend("/home/zemen/a.txt");
+                // await peer.StartSending();
                 await Task.Delay(-1);
                 break;
 
@@ -79,6 +79,7 @@ public class QuicFileSharing
                     {
                         case "answer":
                             utils.ProcessAnswer(msg.Data);
+                            await signaling.CloseAsync();
                             await client.StartAsync(utils.ChosenPeerIp, utils.ChosenPeerPort, utils.IsIpv6,
                                 utils.ChosenOwnPort, utils.Token, utils.Thumbprint, nickname);
                             break;
@@ -92,7 +93,7 @@ public class QuicFileSharing
                 var offer = await utils.ConstructOfferAsync(nickname);
                 await signaling.SendAsync(offer, "offer");
                 
-                client.InitReceive("/home/zemen/test");
+                //client.InitReceive("/home/zemen/test");
                 await Task.Delay(-1);
                 break;
         }
