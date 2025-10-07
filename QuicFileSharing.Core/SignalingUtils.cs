@@ -1,20 +1,21 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 
 namespace QuicFileSharing.Core;
 
 
 class Offer
 {
-    public IPAddress? Ipv4 { get; init; }
-    public IPAddress? Ipv6 { get; init; }
+    public string? Ipv4 { get; init; }
+    public string? Ipv6 { get; init; }
     public required int Port { get; init; }
     public string Nickname { get; init; } = "Anonymous";
 }
 
 class Answer
 {
-    public required IPAddress Ip { get; init; }
+    public required string Ip { get; init; }
     public required int Port { get; init; }
     public string Nickname { get; init; } = "Anonymous";
     public required string Token { get; init; }
@@ -50,20 +51,21 @@ class SignalingUtils
         ChosenOwnPort = GetFreeUdpPortAsync();
         var offer = new Offer
         {
-            Ipv4 = ipv4Task.Result,
-            Ipv6 = ipv6Task.Result,
+            Ipv4 = ipv4Task.Result?.ToString(),
+            Ipv6 = ipv6Task.Result?.ToString(),
             Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname,
             Port = ChosenOwnPort
         };
-        var json = System.Text.Json.JsonSerializer.Serialize(offer);
+        var json = JsonSerializer.Serialize(offer);
         Console.WriteLine(json);
         return json;
     }
     public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token, string nickname)
     {
-        var offer = System.Text.Json.JsonSerializer.Deserialize<Offer>(offerJson);
-        if (offer == null)
-            throw new ArgumentException("Invalid offer JSON");
+        var offer = JsonSerializer.Deserialize<Offer>(offerJson) ?? throw new ArgumentException("Invalid offer JSON");
+        
+        var peerIpv6 = string.IsNullOrWhiteSpace(offer.Ipv6) ? null : IPAddress.Parse(offer.Ipv6);
+        var peerIpv4 = string.IsNullOrWhiteSpace(offer.Ipv4) ? null : IPAddress.Parse(offer.Ipv4);
 
         var ipv4Task = GetPublicIpv4Async();
         var ipv6Task = GetPublicIpv6Async();
@@ -71,16 +73,16 @@ class SignalingUtils
         var ipv4 = ipv4Task.Result;
         var ipv6 = ipv6Task.Result;
         
-        if (offer.Ipv6 is not null && ipv6 is not null)
+        if (peerIpv6 is not null && ipv6 is not null)
         {
-            ChosenPeerIp = offer.Ipv6;
+            ChosenPeerIp = peerIpv6;;
             ChosenOwnIp = ipv6;
             IsIpv6 = true;
             Console.WriteLine("Using IPv6");
         }
-        else if (offer.Ipv4 is not null && ipv4 is not null)
+        else if (peerIpv4 is not null && ipv4 is not null)
         {
-            ChosenPeerIp = offer.Ipv4;
+            ChosenPeerIp = peerIpv4;
             ChosenOwnIp = ipv4;
             Console.WriteLine("Using IPv4");
         }
@@ -92,13 +94,13 @@ class SignalingUtils
         
         var answer = new Answer
         {
-            Ip = ChosenOwnIp,
+            Ip = ChosenOwnIp.ToString(),
             Port = ChosenOwnPort,
             Thumbprint = thumbprint,
             Token = token,
             Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname
         };
-        var json = System.Text.Json.JsonSerializer.Serialize(answer);
+        var json = JsonSerializer.Serialize(answer);
         
         await PunchUdpHoleAsync(ChosenPeerIp, ChosenPeerPort, ChosenOwnPort);
         
@@ -107,14 +109,13 @@ class SignalingUtils
     }
     public void ProcessAnswer(string answerJson)
     {
-        var answer = System.Text.Json.JsonSerializer.Deserialize<Answer>(answerJson);
-        if (answer == null)
-            throw new ArgumentException("Invalid answer JSON");
-        ChosenPeerIp = answer.Ip;
+        var answer = JsonSerializer.Deserialize<Answer>(answerJson) ?? throw new ArgumentException("Invalid answer JSON");
+
+        ChosenPeerIp = IPAddress.Parse(answer.Ip);
         ChosenPeerPort = answer.Port;
         Token = answer.Token;
         Thumbprint = answer.Thumbprint;
-        IsIpv6 = answer.Ip.AddressFamily == AddressFamily.InterNetworkV6;
+        IsIpv6 = ChosenPeerIp.AddressFamily == AddressFamily.InterNetworkV6;
         Console.WriteLine($"Chosen peer IP: {ChosenPeerIp}");
     }
     private static int GetFreeUdpPortAsync()
