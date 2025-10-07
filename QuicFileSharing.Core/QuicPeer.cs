@@ -1,17 +1,20 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Net.Quic;
 using System.Text;
 using System.Diagnostics;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Net;
 using System.Threading.Channels;
-using System.Security.Cryptography;
 
 namespace QuicFileSharing.Core;
 
 
 public abstract class QuicPeer
 {
+    protected readonly X509Certificate2 cert = CreateSelfSignedCertificate();
+    public string Thumbprint => cert.Thumbprint;
+    
     protected QuicConnection? connection;
     protected QuicStream? controlStream;
     protected QuicStream? fileStream;
@@ -20,7 +23,6 @@ public abstract class QuicPeer
     // protected bool isRunning = false;
     // protected bool isReceivingFile = false;
     // protected bool isSendingFile = false;
-    // protected readonly List<Task> connectionTasks = new();
     
     private bool? isReceiver;
     protected CancellationToken token = CancellationToken.None;
@@ -34,8 +36,6 @@ public abstract class QuicPeer
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
-    protected string nickname;
-    protected string connToken;
     
     private DateTime? lastKeepAliveReceived;
     private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15);  // adjust if needed
@@ -196,7 +196,6 @@ public abstract class QuicPeer
             default:
                 Console.WriteLine($"Unknown control message: {line}");
                 break;
-            //  confirm hash
         }
     }
 
@@ -366,10 +365,7 @@ public abstract class QuicPeer
         var hash = hasher.GetHashAndReset();
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
-
-
-    //public abstract Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, 
-     //   string nickname = "Anonymous", string connToken = "", string thumbprint = "");
+    
     public abstract Task StopAsync();
     
     protected async Task PingLoopAsync()
@@ -393,5 +389,19 @@ public abstract class QuicPeer
                 break;
             }
         }
+    }
+    private static X509Certificate2 CreateSelfSignedCertificate()
+    {
+        using var rsa = new RSACryptoServiceProvider(2048);
+        var request = new CertificateRequest(
+            "",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1
+        );
+        var notBefore = DateTime.UtcNow;
+        var notAfter = notBefore.AddYears(100);
+        var cert = request.CreateSelfSigned(notBefore, notAfter);
+        return cert;
     }
 }

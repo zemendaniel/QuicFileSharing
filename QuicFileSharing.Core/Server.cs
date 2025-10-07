@@ -1,55 +1,16 @@
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace QuicFileSharing.Core;
 
 public class Server: QuicPeer
 {
-
     private QuicListener? listener;
-    // private Task? acceptLoopTask;
-    // private DateTime lastPongReceived = DateTime.UtcNow;
     
-    private readonly X509Certificate2 cert = CreateSelfSignedCertificate();
-    public string ConnToken => connToken;
-    public string Thumbprint => cert.Thumbprint;
-
-    public Server()
+    public async Task StartAsync(bool isIpv6, int localPort, string expectedThumbprint)
     {
-        connToken = Generate();
-    }
-    
-    private static string Generate(int byteLength = 32)
-    {
-        var bytes = new byte[byteLength];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(bytes);
-
-        return Convert.ToBase64String(bytes);
-    }
-
-    private static X509Certificate2 CreateSelfSignedCertificate()
-    {
-        using var rsa = new RSACryptoServiceProvider(2048);
-        var request = new CertificateRequest(
-            "",
-            rsa,
-            HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1
-        );
-        var notBefore = DateTime.UtcNow;
-        var notAfter = notBefore.AddYears(100);
-        var cert = request.CreateSelfSigned(notBefore, notAfter);
-        // Console.WriteLine(cert.Thumbprint);
-        return cert;
-    }
-
-    public async Task StartAsync(bool isIpv6, int localPort, string name = "Anonymous")
-    {
-        nickname = name;
         var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort);
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
@@ -58,7 +19,18 @@ public class Server: QuicPeer
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
                 ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
-                ServerCertificate = cert
+                ServerCertificate = cert,
+                ClientCertificateRequired = true,
+                RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) =>
+                {
+                    if (certificate is X509Certificate2 clientCert)
+                    {
+                        Console.WriteLine("Server expected print: " + expectedThumbprint);
+                        Console.WriteLine("Server thumbprint: " + clientCert.Thumbprint);
+                        return clientCert.Thumbprint.Equals(expectedThumbprint, StringComparison.OrdinalIgnoreCase);
+                    }
+                    return false;
+                }
             }
         };
 
@@ -126,6 +98,12 @@ public class Server: QuicPeer
                             break;
 
                         case 0x02:
+                            // if (!isAuthenticated)
+                            // {
+                            //     Console.WriteLine($"[AUTH] Rejected file stream from unauthenticated client {connection?.RemoteEndPoint}");
+                            //     await stream.DisposeAsync();
+                            //     break;
+                            // }
                             fileStream = stream;     
                             Console.WriteLine("Opened file stream");
                             SetFileStream();

@@ -7,8 +7,7 @@ namespace QuicFileSharing.Core;
 
 public class Client : QuicPeer
 {
-    public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort,
-        string _connToken, string expectedThumbprint, string _nickname = "Anonymous")
+    public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, string expectedThumbprint)
     {
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
@@ -20,14 +19,15 @@ public class Client : QuicPeer
             {
                 ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
                 TargetHost = remoteAddress.ToString(), 
+                
+                ClientCertificates = new X509CertificateCollection {cert},
+                
                 RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) =>
                 {
-                    if (certificate is X509Certificate2 cert)
+                    if (certificate is X509Certificate2 serverCert)
                     {
-                        var actualThumbprint = cert.Thumbprint; 
-
-                        Console.WriteLine($"Server certificate thumbprint: {actualThumbprint}");
-
+                        var actualThumbprint = serverCert.Thumbprint;
+                        
                         if (string.Equals(actualThumbprint, expectedThumbprint, StringComparison.OrdinalIgnoreCase))
                         {
                             return true; // Accept
@@ -38,8 +38,6 @@ public class Client : QuicPeer
                 }
             }
         };
-        nickname = _nickname;
-        connToken = _connToken;
         connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
         Console.WriteLine($"Connected to {connection.RemoteEndPoint}");
         

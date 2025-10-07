@@ -10,16 +10,14 @@ class Offer
     public string? Ipv4 { get; init; }
     public string? Ipv6 { get; init; }
     public required int Port { get; init; }
-    // public string Nickname { get; init; } = "Anonymous";
+    public required string ClientThumbprint { get; init; }
 }
 
 class Answer
 {
     public required string Ip { get; init; }
     public required int Port { get; init; }
-    // public string Nickname { get; init; } = "Anonymous";
-    public required string Token { get; init; }
-    public required string Thumbprint { get; init; }
+    public required string ServerThumbprint { get; init; }
 }
 
 class RoomInfo
@@ -41,9 +39,9 @@ class SignalingUtils
     public int ChosenPeerPort { get; private set; }
     public int ChosenOwnPort { get; private set; }
     public bool IsIpv6 { get; private set; } 
-    public string? Token { get; private set; }
-    public string? Thumbprint { get; private set; }
-    public async Task<string> ConstructOfferAsync()
+    public string? ClientThumbprint { get; private set; }
+    public string? ServerThumbprint { get; private set; }
+    public async Task<string> ConstructOfferAsync(string thumbprint)
     {
         var ipv4Task = GetPublicIpv4Async();
         var ipv6Task = GetPublicIpv6Async();
@@ -53,14 +51,14 @@ class SignalingUtils
         {
             Ipv4 = ipv4Task.Result?.ToString(),
             Ipv6 = ipv6Task.Result?.ToString(),
-            // Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname,
-            Port = ChosenOwnPort
+            Port = ChosenOwnPort,
+            ClientThumbprint = thumbprint
         };
         var json = JsonSerializer.Serialize(offer);
         Console.WriteLine(json);
         return json;
     }
-    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, string token)
+    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint)
     {
         var offer = JsonSerializer.Deserialize<Offer>(offerJson) ?? throw new ArgumentException("Invalid offer JSON");
         
@@ -75,7 +73,7 @@ class SignalingUtils
         
         if (peerIpv6 is not null && ipv6 is not null)
         {
-            ChosenPeerIp = peerIpv6;;
+            ChosenPeerIp = peerIpv6;
             ChosenOwnIp = ipv6;
             IsIpv6 = true;
             Console.WriteLine("Using IPv6");
@@ -91,14 +89,13 @@ class SignalingUtils
         
         ChosenOwnPort = GetFreeUdpPortAsync();
         ChosenPeerPort = offer.Port;
+        ClientThumbprint = offer.ClientThumbprint;
         
         var answer = new Answer
         {
             Ip = ChosenOwnIp.ToString(),
             Port = ChosenOwnPort,
-            Thumbprint = thumbprint,
-            Token = token
-            // Nickname = string.IsNullOrWhiteSpace(nickname) ? "Anonymous" : nickname
+            ServerThumbprint = thumbprint,
         };
         var json = JsonSerializer.Serialize(answer);
         
@@ -113,8 +110,7 @@ class SignalingUtils
 
         ChosenPeerIp = IPAddress.Parse(answer.Ip);
         ChosenPeerPort = answer.Port;
-        Token = answer.Token;
-        Thumbprint = answer.Thumbprint;
+        ServerThumbprint = answer.ServerThumbprint;
         IsIpv6 = ChosenPeerIp.AddressFamily == AddressFamily.InterNetworkV6;
         Console.WriteLine($"Chosen peer IP: {ChosenPeerIp}");
     }

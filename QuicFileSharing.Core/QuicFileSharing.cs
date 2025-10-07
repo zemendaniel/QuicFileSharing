@@ -35,9 +35,9 @@ public class QuicFileSharing
                             Console.WriteLine(info.id);
                             break;
                         case "offer":
-                            var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint, server.ConnToken);
+                            var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint);
                             await signaling.SendAsync(answer, "answer");
-                            await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort);
+                            await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, utils.ClientThumbprint);
                             break;
                     }
                 };
@@ -80,7 +80,7 @@ public class QuicFileSharing
                             utils.ProcessAnswer(msg.Data);
                             await signaling.CloseAsync();
                             await client.StartAsync(utils.ChosenPeerIp, utils.ChosenPeerPort, utils.IsIpv6,
-                                utils.ChosenOwnPort, utils.Token, utils.Thumbprint);
+                                utils.ChosenOwnPort, utils.ServerThumbprint);
                             break;
                     }
                 };
@@ -89,9 +89,8 @@ public class QuicFileSharing
                     Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
                 };
 
-                var offer = await utils.ConstructOfferAsync();
+                var offer = await utils.ConstructOfferAsync(client.Thumbprint);
                 await signaling.SendAsync(offer, "offer");
-                
                 //client.InitReceive("/home/zemen/test");
                 await Task.Delay(-1);
                 break;
