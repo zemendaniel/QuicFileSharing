@@ -50,7 +50,7 @@ public class Server: QuicPeer
     public async Task StartAsync(bool isIpv6, int localPort, string name = "Anonymous")
     {
         nickname = name;
-        var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback, localPort);
+        var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort);
         var serverConnectionOptions = new QuicServerConnectionOptions
         {
             DefaultStreamErrorCode = 0x0A,

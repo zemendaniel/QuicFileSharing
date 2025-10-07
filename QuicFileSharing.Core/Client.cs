@@ -13,13 +13,13 @@ public class Client : QuicPeer
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
             RemoteEndPoint = new IPEndPoint(remoteAddress, remotePort),
-            LocalEndPoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback, localPort),
+            LocalEndPoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 ApplicationProtocols = [new SslApplicationProtocol("fileShare")],
-                TargetHost = "", 
+                TargetHost = remoteAddress.ToString(), 
                 RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) =>
                 {
                     if (certificate is X509Certificate2 cert)
