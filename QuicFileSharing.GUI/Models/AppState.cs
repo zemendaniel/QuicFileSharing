@@ -4,7 +4,6 @@ public enum AppState
 {
     Lobby,
     InRoom,
-    JoiningRoom,
-    CreatingRoom,
+    Loading,
     Settings
 }

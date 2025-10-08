@@ -4,7 +4,7 @@ namespace QuicFileSharing.Core;
 
 public class QuicFileSharing
 {
-    public QuicPeer Peer { get; private set; }
+    private QuicPeer peer;
     public string? RoomId { get; private set; }
     
     private static readonly JsonSerializerOptions options = new()
@@ -14,7 +14,17 @@ public class QuicFileSharing
     
     public event Action<string>? RoomCreated;
     public event Action<string>? RoomJoined;
+    public event Action? ClientConnected;
+    public event Action? ClientDisconnected;
+    public event Action? ConnectedToServer;
+    public event Action? ConnectionReady;
     
+    private void AttachPeerEvents()
+    {
+        if (peer == null) return;
+
+        peer.ConnectionReady += () => ConnectionReady?.Invoke();
+    }
     
     public async Task Start(Role role, string wsBaseUri, string roomId = "")
     {
@@ -27,8 +37,10 @@ public class QuicFileSharing
         {
             case Role.Server:
                 signaling = new WebSocketSignaling(wsBaseUri, Role.Server);
-                Peer = new Server();
-                var server = Peer as Server;
+                peer = new Server();
+                AttachPeerEvents();
+                
+                var server = peer as Server;
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
@@ -43,7 +55,7 @@ public class QuicFileSharing
                             break;
                         case "offer":
                             var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint);
-                            await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, utils.ClientThumbprint);
+                            _ = Task.Run(() => server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, utils.ClientThumbprint));
                             await signaling.SendAsync(answer, "answer");
                             break;
                     }
@@ -71,8 +83,9 @@ public class QuicFileSharing
                     Console.WriteLine("Failed to connect to signaling server.");
                     return;
                 }
-                Peer = new Client();
-                var client = (Peer as Client)!;
+                peer = new Client();
+                var client = (peer as Client)!;
+                AttachPeerEvents();
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
@@ -85,6 +98,7 @@ public class QuicFileSharing
                             await signaling.CloseAsync();
                             await client.StartAsync(utils.ChosenPeerIp, utils.ChosenPeerPort, utils.IsIpv6,
                                 utils.ChosenOwnPort, utils.ServerThumbprint);
+                            ConnectedToServer?.Invoke();
                             break;
                     }
                 };

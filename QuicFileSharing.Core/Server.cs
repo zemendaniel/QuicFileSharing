@@ -8,6 +8,8 @@ namespace QuicFileSharing.Core;
 public class Server: QuicPeer
 {
     private QuicListener? listener;
+    public event Action? ClientConnected;
+    public event Action? ClientDisconnected;
     
     public async Task StartAsync(bool isIpv6, int localPort, string expectedThumbprint)
     {
@@ -45,25 +47,21 @@ public class Server: QuicPeer
         cts = new CancellationTokenSource();
         token = cts.Token;
         
-        _ = Task.Run(AcceptConnectionsLoop, token);
-        
-        _ = Task.Run(PingLoopAsync, token);
-        _ = Task.Run(TimeoutCheckLoopAsync, token);
-
+        var connTask = Task.Run(AcceptConnection, token);
+        await connTask;
         
     }
-    private async Task AcceptConnectionsLoop()
+    private async Task AcceptConnection()
     {
         if (listener == null)
             throw new InvalidOperationException("Listener not initialized.");
         try
         {
-            while (!token.IsCancellationRequested)
-            {
-                connection = await listener.AcceptConnectionAsync(token);
-                Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
-                _ = Task.Run(HandleConnectionAsync, token);
-            }
+            connection = await listener.AcceptConnectionAsync(token);
+            Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
+            _ = Task.Run(HandleStreamsAsync, token);
+            _ = Task.Run(PingLoopAsync, token);
+            _ = Task.Run(TimeoutCheckLoopAsync, token);
         }
         catch (OperationCanceledException)
         {
@@ -71,7 +69,7 @@ public class Server: QuicPeer
         }
     }
 
-    private async Task HandleConnectionAsync()
+    private async Task HandleStreamsAsync()
     {
         if (connection == null)
             throw new InvalidOperationException("Connection not initialized.");

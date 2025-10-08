@@ -42,6 +42,8 @@ public abstract class QuicPeer
     private static readonly int fileChunkSize = 16 * 1024 * 1024;
     private static readonly int messageChunkSize = 1024;
     private static readonly int fileBufferSize = 1014 * 1024;
+    
+    public event Action? ConnectionReady;
 
     public void InitReceive(string folder)
     {
@@ -71,6 +73,7 @@ public abstract class QuicPeer
         if (controlReady && fileReady)
         {
             bothStreamsReady.TrySetResult();
+            ConnectionReady?.Invoke();
         }
     }
 

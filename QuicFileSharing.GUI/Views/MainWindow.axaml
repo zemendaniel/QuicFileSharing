@@ -33,8 +33,12 @@
             <TextBlock>Create a new room:</TextBlock>
             <Button Content="Create Room" Command="{Binding CreateRoomCommand}"/>
         </StackPanel>
-        <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.InRoom}}">
+        <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.Loading}}">
+            <TextBlock Text="{Binding RoomLoadingMessage}"></TextBlock>
             <SelectableTextBlock Text="{Binding RoomCode}"></SelectableTextBlock>
+        </StackPanel>
+        <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.InRoom}}">
+            <SelectableTextBlock Text="You are in a room"></SelectableTextBlock>
         </StackPanel>
     </Grid>
     

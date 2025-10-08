@@ -19,6 +19,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private string roomCode = string.Empty;
     
     [ObservableProperty]
+    private string roomLoadingMessage = string.Empty;
+    
+    [ObservableProperty]
     private string statusMessage = string.Empty;
 
     public MainWindowViewModel()
@@ -27,21 +30,32 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Dispatcher.UIThread.Post(() =>
             {
-                State = AppState.InRoom;
                 RoomCode = id;
+                
+            });
+        };
+        service.ConnectionReady += () =>
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                State = AppState.InRoom;
             });
         };
     }
     
     [RelayCommand]
-    private void JoinRoom()
+    private async Task JoinRoom()
     {
-        
+        await service.Start(Role.Client, WsBaseUri, RoomCode);
+        State = AppState.Loading;
+        RoomLoadingMessage = "Joining room...";
     }
     
     [RelayCommand]
     private async Task CreateRoom()
     {
         await service.Start(Role.Server, WsBaseUri);
+        State = AppState.Loading;
+        RoomLoadingMessage = "Waiting for connection...";
     }
 }
