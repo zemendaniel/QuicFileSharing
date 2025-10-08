@@ -36,8 +36,8 @@ public class QuicFileSharing
                             break;
                         case "offer":
                             var answer = await utils.ConstructAnswerAsync(msg.Data, server!.Thumbprint);
-                            await signaling.SendAsync(answer, "answer");
                             await server.StartAsync(utils.IsIpv6, utils.ChosenOwnPort, utils.ClientThumbprint);
+                            await signaling.SendAsync(answer, "answer");
                             break;
                     }
                 };
@@ -91,7 +91,7 @@ public class QuicFileSharing
 
                 var offer = await utils.ConstructOfferAsync(client.Thumbprint);
                 await signaling.SendAsync(offer, "offer");
-                //client.InitReceive("/home/zemen/test");
+                // client.InitReceive("/home/zemen/test");
                 await Task.Delay(-1);
                 break;
         }

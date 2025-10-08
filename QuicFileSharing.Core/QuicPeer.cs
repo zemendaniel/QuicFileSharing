@@ -174,6 +174,7 @@ public abstract class QuicPeer
                 break;
             case var s when line.StartsWith("METADATA:"):
                 // Todo accept or reject file (enough after I've built the GUI)
+                // Todo specify
                 if (saveFolder == null)
                     throw new InvalidOperationException("Save folder not initialized.");
                 var json = line["METADATA:".Length..];
