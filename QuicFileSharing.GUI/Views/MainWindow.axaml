@@ -3,18 +3,40 @@
         xmlns:vm="using:QuicFileSharing.GUI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:converters="clr-namespace:QuicFileSharing.GUI.Converters"
+        xmlns:models="clr-namespace:QuicFileSharing.GUI.Models"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="QuicFileSharing.GUI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="QuicFileSharing.GUI">
-
+        Title="QuicShare">
+    
+    <Window.Resources>
+        <converters:EnumToBoolConverter x:Key="EnumToBoolConverter"/>
+    </Window.Resources>
+    
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
         <vm:MainWindowViewModel/>
     </Design.DataContext>
-
-    <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    
+    <Grid Margin="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+        <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.Lobby}}">
+            <TextBlock>What would you like to do?</TextBlock>
+            <TextBlock>Join an existing room:</TextBlock>
+            <TextBox Text="{Binding RoomCode}" Watermark="Enter the code here...">
+                <TextBox.KeyBindings>
+                    <KeyBinding Gesture="Enter" Command="{Binding JoinRoomCommand}"/>
+                </TextBox.KeyBindings>
+            </TextBox>
+            <Button Content="Join Room" Command="{Binding JoinRoomCommand}"/>
+            <Border Height="1" Background="#E0E0E0" Margin="0,10,0,10"/>
+            <TextBlock>Create a new room:</TextBlock>
+            <Button Content="Create Room" Command="{Binding CreateRoomCommand}"/>
+        </StackPanel>
+        <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.InRoom}}">
+            <SelectableTextBlock Text="{Binding RoomCode}"></SelectableTextBlock>
+        </StackPanel>
+    </Grid>
+    
 
 </Window>

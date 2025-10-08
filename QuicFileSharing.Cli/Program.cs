@@ -24,6 +24,6 @@ class Program
                 throw new ArgumentException("Invalid role.");
         }
 
-        await QuicFileSharing.Core.QuicFileSharing.Start(r, "ws://vps.zemendaniel.hu:8080", roomId);
+        //await QuicFileSharing.Core.QuicFileSharing.Start(r, "ws://vps.zemendaniel.hu:8080", roomId);
     }
 }
