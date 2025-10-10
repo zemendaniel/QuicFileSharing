@@ -44,18 +44,25 @@ public partial class MainWindowViewModel : ViewModelBase
     }
     
     [RelayCommand]
-    private async Task JoinRoom()
+    private void JoinRoom()
     {
-        await service.Start(Role.Client, WsBaseUri, RoomCode);
-        State = AppState.Loading;
-        RoomLoadingMessage = "Joining room...";
+        Dispatcher.UIThread.Post(async () =>
+        {
+            await service.Start(Role.Client, WsBaseUri, RoomCode);
+            State = AppState.Loading;
+            RoomLoadingMessage = "Joining room...";    
+        });
+        
     }
     
     [RelayCommand]
-    private async Task CreateRoom()
+    private void CreateRoom()
     {
-        await service.Start(Role.Server, WsBaseUri);
-        State = AppState.Loading;
-        RoomLoadingMessage = "Waiting for connection...";
+        Dispatcher.UIThread.Post(async () =>
+        {
+            await service.Start(Role.Server, WsBaseUri);
+            State = AppState.Loading;
+            RoomLoadingMessage = "Waiting for connection...";    
+        });
     }
 }

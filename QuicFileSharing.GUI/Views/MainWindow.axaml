@@ -20,6 +20,7 @@
     </Design.DataContext>
     
     <Grid Margin="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+        <!-- Lobby -->
         <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.Lobby}}">
             <TextBlock>What would you like to do?</TextBlock>
             <TextBlock>Join an existing room:</TextBlock>
@@ -33,6 +34,8 @@
             <TextBlock>Create a new room:</TextBlock>
             <Button Content="Create Room" Command="{Binding CreateRoomCommand}"/>
         </StackPanel>
+        
+        <!-- Loading page -->
         <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.Loading}}">
             <TextBlock Text="{Binding RoomLoadingMessage}"></TextBlock>
             <SelectableTextBlock Text="{Binding RoomCode}"></SelectableTextBlock>

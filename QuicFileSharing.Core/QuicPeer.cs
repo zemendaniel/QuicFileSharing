@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using System.Net.Quic;
 using System.Text;
 using System.Diagnostics;
@@ -14,7 +14,7 @@ public abstract class QuicPeer
 {
     protected readonly X509Certificate2 cert = CreateSelfSignedCertificate();
     public string Thumbprint => cert.Thumbprint;
-    
+
     protected QuicConnection? connection;
     protected QuicStream? controlStream;
     protected QuicStream? fileStream;
@@ -23,26 +23,28 @@ public abstract class QuicPeer
     // protected bool isRunning = false;
     // protected bool isReceivingFile = false;
     // protected bool isSendingFile = false;
-    
+
     private bool? isReceiver;
     protected CancellationToken token = CancellationToken.None;
-    private string? saveFolder;   // sender
-    private string? filePath;     // receiver
-    private Dictionary<string, string>? metadata;     // receiver
-    private string? joinedFilePath;   // receiver
+    private string? saveFolder; // sender
+    private string? filePath; // receiver
+    private Dictionary<string, string>? metadata; // receiver
+    private string? joinedFilePath; // receiver
     private Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
+
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
-    
+
     private DateTime? lastKeepAliveReceived;
-    private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15);  // adjust if needed
+    private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15); // adjust if needed
     private static readonly int fileChunkSize = 16 * 1024 * 1024;
     private static readonly int messageChunkSize = 1024;
     private static readonly int fileBufferSize = 1014 * 1024;
-    
+
     public event Action? ConnectionReady;
 
     public void InitReceive(string folder)
@@ -56,6 +58,7 @@ public abstract class QuicPeer
         filePath = path;
         isReceiver = false;
     }
+
     protected void SetControlStream()
     {
         controlReady = true;
@@ -67,7 +70,9 @@ public abstract class QuicPeer
         fileReady = true;
         CompleteIfBothStreamsReady();
     }
+
     private Task WaitForStreamsAsync() => bothStreamsReady.Task;
+
     private void CompleteIfBothStreamsReady()
     {
         if (controlReady && fileReady)
@@ -104,7 +109,7 @@ public abstract class QuicPeer
 
         await Task.WhenAll(sendTask, receiveTask);
     }
-    
+
     private async Task SendMessageAsync(ReadOnlyMemory<byte> payload)
     {
         if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
@@ -117,7 +122,7 @@ public abstract class QuicPeer
             await controlStream.WriteAsync(payload, token);
         await controlStream.FlushAsync(token);
     }
-    
+
     private async Task<byte[]?> ReadMessageAsync()
     {
         if (controlStream == null) throw new InvalidOperationException("Control stream not initialized.");
@@ -152,14 +157,14 @@ public abstract class QuicPeer
         {
             case null:
                 break;
-            case "PING":    // Both sides get this
+            case "PING": // Both sides get this
                 lastKeepAliveReceived = DateTime.UtcNow;
                 break;
-            case "READY":   // Receiver gets this
+            case "READY": // Receiver gets this
                 Console.WriteLine("Receiver is ready, starting file send...");
                 _ = Task.Run(SendFileAsync, token);
                 break;
-            case var s when line.StartsWith("RECEIVED_FILE:"):   // Sender gets this
+            case var s when line.StartsWith("RECEIVED_FILE:"): // Sender gets this
                 var status = line["RECEIVED_FILE:".Length..];
                 switch (status)
                 {
@@ -173,6 +178,7 @@ public abstract class QuicPeer
                         Console.WriteLine($"Unknown status: {status}");
                         break;
                 }
+
                 isReceiver = false;
                 break;
             case var s when line.StartsWith("METADATA:"):
@@ -189,7 +195,7 @@ public abstract class QuicPeer
                 await QueueControlMessage("READY");
                 _ = Task.Run(ReceiveFileAsync, token);
                 break;
-            case var s when line.StartsWith("FILE_SENT:"):   // Receiver gets this
+            case var s when line.StartsWith("FILE_SENT:"): // Receiver gets this
                 Console.WriteLine("Sender confirmed file was sent.");
                 if (fileHashReady == null)
                     throw new InvalidOperationException("File hash ready not initialized.");
@@ -210,7 +216,7 @@ public abstract class QuicPeer
             throw new InvalidOperationException("InitSend must be called first.");
         if (isReceiver == true)
             throw new InvalidOperationException("InitSend cannot be called on a receiver.");
-        
+
         var fileInfo = new FileInfo(filePath);
         var fileName = Path.GetFileName(filePath);
         var fileSize = fileInfo.Length;
@@ -222,14 +228,14 @@ public abstract class QuicPeer
         var json = System.Text.Json.JsonSerializer.Serialize(meta);
         await QueueControlMessage($"METADATA:{json}");
     }
-    
+
     private async Task SendFileAsync()
     {
-        if (filePath == null) 
+        if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
-        if (fileStream == null) 
+        if (fileStream == null)
             throw new InvalidOperationException("File stream not initialized.");
-        
+
         var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
             FullMode = BoundedChannelFullMode.Wait
@@ -237,7 +243,7 @@ public abstract class QuicPeer
 
         var hashTask = Task.Factory.StartNew(() => ComputeHashAsync(hashQueue), TaskCreationOptions.LongRunning)
             .Unwrap();
-        
+
         await using var inputFile = new FileStream(
             path: filePath,
             mode: FileMode.Open,
@@ -261,7 +267,7 @@ public abstract class QuicPeer
             await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
             Console.WriteLine($"Sent chunk: {bytesRead} bytes");
         }
-        
+
         hashQueue.Writer.Complete();
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
@@ -272,24 +278,24 @@ public abstract class QuicPeer
     {
         if (metadata == null)
             throw new Exception("The receiver was started prematurely.");
-        
-        if (fileStream == null) 
+
+        if (fileStream == null)
             throw new InvalidOperationException("File stream not initialized.");
-        
+
         if (joinedFilePath == null)
             throw new InvalidOperationException("Joined file path not initialized.");
-    
+
         long totalBytesReceived = 0;
         var fileSize = long.Parse(metadata["FileSize"]);
-        
+
         var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
-        
+
         var hashTask = Task.Factory.StartNew(() => ComputeHashAsync(hashQueue), TaskCreationOptions.LongRunning)
             .Unwrap();
-    
+
         await using var outputFile = new FileStream(
             joinedFilePath,
             FileMode.Create,
@@ -297,9 +303,9 @@ public abstract class QuicPeer
             FileShare.None,
             bufferSize: fileChunkSize,
             useAsync: true);
-    
+
         var stopwatch = Stopwatch.StartNew();
-    
+
         while (totalBytesReceived < fileSize)
         {
             // So we basically don't have to copy the chunk to a new buffer, we can just overwrite the existing one
@@ -311,23 +317,23 @@ public abstract class QuicPeer
                 ArrayPool<byte>.Shared.Return(buffer);
                 break;
             }
-            
+
             await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
-    
+
             await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
-    
+
             totalBytesReceived += bytesRead;
             Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
         }
-        
+
         hashQueue.Writer.Complete();
-        
+
         var actualFileHash = await hashTask;
         Console.WriteLine($"SHA256: {actualFileHash}");
-    
+
         stopwatch.Stop();
         await outputFile.FlushAsync(token);
-        
+
         var expectedFileHash = await fileHashReady!.Task;
         if (actualFileHash != expectedFileHash)
         {
@@ -339,11 +345,11 @@ public abstract class QuicPeer
             Console.WriteLine("[SUCCESS] File received successfully.");
             await QueueControlMessage("RECEIVED_FILE:OK");
         }
-    
+
         Console.WriteLine($"File was saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine(
             $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
-        
+
         metadata = null;
         joinedFilePath = null;
         fileHashReady = null;
@@ -354,7 +360,7 @@ public abstract class QuicPeer
     {
         await controlSendQueue.Writer.WriteAsync(msg, token);
     }
-    
+
     private async Task<string> ComputeHashAsync(Channel<ArraySegment<byte>> hashQueue)
     {
         Console.WriteLine("Calculating hash...");
@@ -369,9 +375,9 @@ public abstract class QuicPeer
         var hash = hasher.GetHashAndReset();
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
-    
+
     public abstract Task StopAsync();
-    
+
     protected async Task PingLoopAsync()
     {
         while (!token.IsCancellationRequested)
@@ -394,7 +400,8 @@ public abstract class QuicPeer
             }
         }
     }
-    private static X509Certificate2 CreateSelfSignedCertificate()
+
+    public static X509Certificate2 CreateSelfSignedCertificate()
     {
         using var rsa = new RSACryptoServiceProvider(2048);
         var request = new CertificateRequest(
@@ -406,6 +413,8 @@ public abstract class QuicPeer
         var notBefore = DateTime.UtcNow;
         var notAfter = notBefore.AddYears(100);
         var cert = request.CreateSelfSigned(notBefore, notAfter);
-        return cert;
+
+        return new X509Certificate2(cert.Export(X509ContentType.Pfx));
     }
+    
 }
