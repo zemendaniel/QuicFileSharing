@@ -23,6 +23,9 @@ public partial class MainWindowViewModel : ViewModelBase
     
     [ObservableProperty]
     private string statusMessage = string.Empty;
+    
+    [ObservableProperty]
+    public string joinErrorText = string.Empty;
 
     public MainWindowViewModel()
     {
@@ -48,7 +51,18 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         Dispatcher.UIThread.Post(async () =>
         {
-            await service.Start(Role.Client, WsBaseUri, RoomCode);
+            service.OnDisconnected += (description) =>
+            {
+                JoinErrorText = description ?? "Unknown error";
+                return;
+            };
+            var (success, errorMessage) = await service.Start(Role.Client, WsBaseUri, RoomCode);
+            if (success is not true)
+            {
+                JoinErrorText = errorMessage ?? "Unknown error";
+                return;
+            }
+            
             State = AppState.Loading;
             RoomLoadingMessage = "Joining room...";    
         });

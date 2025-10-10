@@ -29,6 +29,7 @@
                     <KeyBinding Gesture="Enter" Command="{Binding JoinRoomCommand}"/>
                 </TextBox.KeyBindings>
             </TextBox>
+            <TextBox Text="{Binding JoinErrorText}"></TextBox>
             <Button Content="Join Room" Command="{Binding JoinRoomCommand}"/>
             <Border Height="1" Background="#E0E0E0" Margin="0,10,0,10"/>
             <TextBlock>Create a new room:</TextBlock>

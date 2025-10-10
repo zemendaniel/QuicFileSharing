@@ -28,17 +28,17 @@ class WebSocketSignaling : IDisposable
         ws = new ClientWebSocket();
     }
 
-    public async Task<bool> ConnectAsync(string? roomId = null)
+    public async Task<(bool Success, string? ErrorMessage)> ConnectAsync(string? roomId = null)
     {
         if (ws is not { State: WebSocketState.None })
-            throw new InvalidOperationException("WebSocket already connected or disposed");
-        
+            return (false, "WebSocket already connected");
+    
         var uriBuilder = new StringBuilder($"{baseUri}/ws/rooms?role={role.ToString().ToLower()}");
 
         if (role == Role.Client)
         {
             if (string.IsNullOrWhiteSpace(roomId))
-                throw new ArgumentException("Client must provide room id");
+                return (false, "Client must provide a room code");
             uriBuilder.Append($"&room_id={roomId}");
         }
 
@@ -47,22 +47,22 @@ class WebSocketSignaling : IDisposable
         {
             await ws.ConnectAsync(uri, cts.Token);
             receiveTask = Task.Run(ReceiveAsync, cts.Token);
-            return true;
+            return (true, null); // connected successfully
         }
         catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
         {
             Console.WriteLine("WebSocket closed prematurely: " + ex.Message);
-            return false;
+            return (false, ex.Message);
         }
         catch (WebSocketException ex)
         {
             Console.WriteLine($"WebSocket error: {ex.WebSocketErrorCode} - {ex.Message}");
-            return false;
+            return (false, ex.Message);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Unexpected exception while connecting: {ex}");
-            return false;
+            return (false, ex.Message);
         }
     }
 
@@ -118,10 +118,10 @@ class WebSocketSignaling : IDisposable
         }
     }
 
-    public async Task SendAsync(string message, string type)
+    public async Task<(bool success, string? errorMessage)>SendAsync(string message, string type)
     {
         if (ws is not { State: WebSocketState.Open })
-            throw new InvalidOperationException("WebSocket not connected");
+            return (false, "WebSocket not connected");
 
         var msg = new SignalingMessage
         {
@@ -133,6 +133,7 @@ class WebSocketSignaling : IDisposable
         var bytes = Encoding.UTF8.GetBytes(json);
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
         Console.WriteLine($"[OUT] {message}");
+        return (true, null);
     }
 
     public async Task CloseAsync()

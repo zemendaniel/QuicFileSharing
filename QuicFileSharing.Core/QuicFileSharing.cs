@@ -18,18 +18,18 @@ public class QuicFileSharing
     public event Action? ClientDisconnected;
     public event Action? ConnectedToServer;
     public event Action? ConnectionReady;
+    public event Action<string?>? OnDisconnected;
     
     private void AttachPeerEvents()
     {
-        if (peer == null) return;
-
         peer.ConnectionReady += () => ConnectionReady?.Invoke();
     }
-    
-    public async Task Start(Role role, string wsBaseUri, string roomId = "")
+
+    public async Task<(bool, string?)> Start(Role role, string wsBaseUri, string roomId = "")
     {
         WebSocketSignaling signaling;
-        bool success;
+        bool? success;
+        string? errorMessage;
         SignalingMessage? msg;
         var utils = new SignalingUtils();
         
@@ -41,6 +41,10 @@ public class QuicFileSharing
                 AttachPeerEvents();
                 
                 var server = peer as Server;
+                signaling.OnDisconnected += (reason, description) =>
+                {
+                    Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
+                };
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
@@ -60,32 +64,28 @@ public class QuicFileSharing
                             break;
                     }
                 };
-                success = await signaling.ConnectAsync();
-                if (!success)
+                (success, errorMessage) = await signaling.ConnectAsync();
+                if (success is not true)
                 {
-                    Console.WriteLine("Failed to connect to signaling server.");
-                    return;
+                    Console.WriteLine($"Failed to connect to signaling server: {errorMessage}");
+                    return (false, errorMessage);
                 }
-                signaling.OnDisconnected += (reason, description) =>
-                {
-                    Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
-                };
                 
                 break;
 
             case Role.Client:
                 signaling = new WebSocketSignaling(wsBaseUri, Role.Client);
-                if (string.IsNullOrWhiteSpace(roomId))
-                    throw new ArgumentException("Client must provide room id");
-                success = await signaling.ConnectAsync(roomId);
-                if (!success)
-                {
-                    Console.WriteLine("Failed to connect to signaling server.");
-                    return;
-                }
                 peer = new Client();
                 var client = (peer as Client)!;
                 AttachPeerEvents();
+                if (string.IsNullOrWhiteSpace(roomId))
+                    return (false, "Client must provide a room code");
+                
+                signaling.OnDisconnected += (reason, description) =>
+                {
+                    OnDisconnected?.Invoke(description);
+                    throw new Exception(description);
+                };
                 signaling.OnMessageReceived += async message =>
                 {
                     Console.WriteLine(message);
@@ -102,15 +102,24 @@ public class QuicFileSharing
                             break;
                     }
                 };
-                signaling.OnDisconnected += (reason, description) =>
+                (success, errorMessage) = await signaling.ConnectAsync(roomId);
+                if (success is not true)
                 {
-                    Console.WriteLine($"Disconnected from signaling server. Reason: {reason}, Description: {description}");
-                };
-
+                    Console.WriteLine("Failed to connect to signaling server.");
+                    return (false, errorMessage);
+                }
+                
+                
                 var offer = await utils.ConstructOfferAsync(client.Thumbprint);
-                await signaling.SendAsync(offer, "offer");
-
+                
+                (success, errorMessage) = await signaling.SendAsync(offer, "offer");
+                if (success is not true)
+                {
+                    Console.WriteLine($"Failed to send offer to signaling server: {errorMessage}");
+                    return (false, errorMessage);
+                }
                 break;
         }
+        return (true, null);
     }
 }
