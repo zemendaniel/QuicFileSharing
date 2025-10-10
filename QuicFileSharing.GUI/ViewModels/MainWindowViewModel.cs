@@ -44,6 +44,7 @@ public partial class MainWindowViewModel : ViewModelBase
         client = new Client();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
+        // todo cancellationToken instead of this boolean
         var gotDisconnected = false;
 
         signaling.OnDisconnected += (_, description) =>
