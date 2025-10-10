@@ -7,6 +7,8 @@ namespace QuicFileSharing.Core;
 
 public class Client : QuicPeer
 {
+    public bool GotConnected { get; private set;}
+
     public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, string expectedThumbprint)
     {
         var clientConnectionOptions = new QuicClientConnectionOptions
@@ -52,6 +54,8 @@ public class Client : QuicPeer
         fileStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, token);
         await fileStream.WriteAsync(new byte[] { 0x02 }, token); 
         SetFileStream();
+
+        GotConnected = true;
         
         _ = Task.Run(PingLoopAsync, token);
         _ = Task.Run(TimeoutCheckLoopAsync, token);
