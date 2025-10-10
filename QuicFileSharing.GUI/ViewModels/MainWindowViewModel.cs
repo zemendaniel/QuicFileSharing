@@ -109,7 +109,7 @@ public partial class MainWindowViewModel : ViewModelBase
         server = new Server();
         await Dispatcher.UIThread.InvokeAsync(() => LobbyText = "Connecting to coordination server...");
 
-        await using WebSocketSignaling signaling = new WebSocketSignaling(WsBaseUri);
+        await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         signaling.OnDisconnected += (_, description) =>
         {
