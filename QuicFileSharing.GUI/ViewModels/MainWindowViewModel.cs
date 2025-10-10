@@ -61,12 +61,12 @@ public partial class MainWindowViewModel : ViewModelBase
             LobbyText = $"Could not connect to coordination server: {errorMessage}";
             return;
         }
-        var offer = await signalingUtils.ConstructOfferAsync(client.Thumbprint);
+        var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint));
         
         try
         {
             if (gotDisconnected) return;
-            await signaling.SendAsync(offer, "offer");
+            await Task.Run(() => signaling.SendAsync(offer, "offer"));
         }
         catch (InvalidOperationException ex)
         {
@@ -81,15 +81,15 @@ public partial class MainWindowViewModel : ViewModelBase
             LobbyText = "Could not connect to peer: Could not agree on IP generation.";
             return;
         }
-        await client.StartAsync(
+        await Task.Run(() => client.StartAsync(
             signalingUtils.ChosenPeerIp,
             signalingUtils.ChosenPeerPort,
             signalingUtils.IsIpv6,
             signalingUtils.ChosenOwnPort,
-            signalingUtils.ServerThumbprint!);
+            signalingUtils.ServerThumbprint!));
         
         State = AppState.InRoom;
-        await signaling.CloseAsync();
+        await Task.Run(signaling.CloseAsync);
     }
 
     [RelayCommand]
@@ -122,13 +122,13 @@ public partial class MainWindowViewModel : ViewModelBase
         RoomCode = info.id;
 
         var offer = await signaling.OfferTcs.Task;
-        var answer = await signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint);
-        await server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
-            signalingUtils.ClientThumbprint!);;
+        var answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint));
+        await Task.Run(() => server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
+            signalingUtils.ClientThumbprint!));;
         
         try
         {
-            await signaling.SendAsync(answer, "answer");
+            await Task.Run(() => signaling.SendAsync(answer, "answer"));
         }
         catch (InvalidOperationException ex)
         {
@@ -138,6 +138,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await server.ClientConnected.Task;
         State = AppState.InRoom;
-        await signaling.CloseAsync();
+        await Task.Run(signaling.CloseAsync);
     }
 }
