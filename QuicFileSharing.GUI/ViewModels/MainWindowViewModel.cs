@@ -54,7 +54,7 @@ public partial class MainWindowViewModel : ViewModelBase
             gotDisconnected = true;
         };
         LobbyText = "Connecting to coordination server...";
-        var (success, errorMessage) = await signaling.ConnectAsync(Role.Client, RoomCode);
+        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Client, RoomCode));
         if (success is not true)
         {
             State = AppState.Lobby;
@@ -108,7 +108,8 @@ public partial class MainWindowViewModel : ViewModelBase
             LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ?
                 "The signaling was closed before your peer could join." : description)}";
         };
-        var (success, errorMessage) = await signaling.ConnectAsync(Role.Server, RoomCode);
+        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Server));
+        // var (success, errorMessage) = await signaling.ConnectAsync(Role.Server, RoomCode);
         if (success is not true)
         { 
             State = AppState.Lobby; 
