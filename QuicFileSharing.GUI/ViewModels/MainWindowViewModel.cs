@@ -30,7 +30,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private Server? server;
     private Client? client;
     private readonly SignalingUtils signalingUtils = new();
-    private WebSocketSignaling signaling;
+    // private WebSocketSignaling signaling;
     
 
     public MainWindowViewModel()
@@ -42,142 +42,122 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task JoinRoom()
     {
         client = new Client();
-        using (signaling = new(WsBaseUri))
+        await using var signaling = new WebSocketSignaling(WsBaseUri);
+        
+        var gotDisconnected = false;
+
+        signaling.OnDisconnected += (_, description) =>
         {
-
-            var gotDisconnected = false;
-
-            signaling.OnDisconnected += (_, description) =>
+            Dispatcher.UIThread.Post(() =>
             {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    State = AppState.Lobby;
-                    LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
-                });
+                State = AppState.Lobby;
+                LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
+            });
+            gotDisconnected = true;
+        };
+        LobbyText = "Connecting to coordination server...";
+        var (success, errorMessage) = await signaling.ConnectAsync(Role.Client, RoomCode);
+        if (success is not true)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                State = AppState.Lobby;
+                LobbyText = $"Could not connect to coordination server: {errorMessage}";
                 gotDisconnected = true;
-            };
-
-            signaling.OnMessageReceived += async message =>
-            {
-                var msg = JsonSerializer.Deserialize<SignalingMessage>(message, SignalingUtils.Options);
-                if (msg == null) return;
-
-                switch (msg.Type)
-                {
-                    case "answer":
-                        LobbyText = "Connecting to peer...";
-                        signalingUtils.ProcessAnswer(msg.Data);
-
-                        if (signalingUtils.ChosenPeerIp == null)
-                        {
-                            await Dispatcher.UIThread.InvokeAsync(() =>
-                            {
-                                LobbyText = "Could not connect to peer: Could not agree on IP generation.";
-                            });
-                            return;
-                        }
-
-                        await client.StartAsync(
-                            signalingUtils.ChosenPeerIp,
-                            signalingUtils.ChosenPeerPort,
-                            signalingUtils.IsIpv6,
-                            signalingUtils.ChosenOwnPort,
-                            signalingUtils.ServerThumbprint!);
-
-                        await Dispatcher.UIThread.InvokeAsync(() => { State = AppState.InRoom; });
-                        break;
-                }
-            };
-
-            LobbyText = "Connecting to coordination server...";
-            var (success, errorMessage) = await signaling.ConnectAsync(Role.Client, RoomCode);
-            if (success is not true)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LobbyText = $"Could not connect to coordination server: {errorMessage}";
-                });
-                return;
-            }
-
-            var offer = await signalingUtils.ConstructOfferAsync(client.Thumbprint);
-
-            if (gotDisconnected) return;
-            try
-            {
-                await signaling.SendAsync(offer, "offer");
-            }
-            catch (InvalidOperationException ex)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LobbyText = $"Could not connect to coordination server: {ex.Message}";
-                });
-            }
+            });
         }
+        var offer = await signalingUtils.ConstructOfferAsync(client.Thumbprint);
+
+        if (gotDisconnected) return;
+        try
+        {
+            await signaling.SendAsync(offer, "offer");
+        }
+        catch (InvalidOperationException ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LobbyText = $"Could not connect to coordination server: {ex.Message}";
+            });
+        }
+
+        var answer = await signaling.AnswerTsc.Task;
+        LobbyText = "Connecting to peer...";
+        signalingUtils.ProcessAnswer(answer);
+        if (signalingUtils.ChosenPeerIp == null)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LobbyText = "Could not connect to peer: Could not agree on IP generation.";
+            });
+            return;
+        }
+        await client.StartAsync(
+            signalingUtils.ChosenPeerIp,
+            signalingUtils.ChosenPeerPort,
+            signalingUtils.IsIpv6,
+            signalingUtils.ChosenOwnPort,
+            signalingUtils.ServerThumbprint!);
+        
+        await Dispatcher.UIThread.InvokeAsync(() => { State = AppState.InRoom; });
+        
     }
 
     [RelayCommand]
     private async Task CreateRoom()
     {
         server = new Server();
-        using (signaling = new(WsBaseUri))
+        await Dispatcher.UIThread.InvokeAsync(() => LobbyText = "Connecting to coordination server...");
+
+        await using WebSocketSignaling signaling = new WebSocketSignaling(WsBaseUri);
+        
+        signaling.OnDisconnected += (_, description) =>
         {
-
-            signaling.OnDisconnected += (reason, description) =>
+            if (server.IsClientConnected) return;
+            Dispatcher.UIThread.Post(() =>
             {
-                if (server.IsClientConnected) return;
-                Dispatcher.UIThread.Post(() =>
-                {
-                    State = AppState.Lobby;
-                    LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ?
-                        "The signaling was closed before your peer could join." : description)}";
-                });
-            };
-
-            signaling.OnMessageReceived += async message =>
+                State = AppState.Lobby;
+                LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ?
+                    "The signaling was closed before your peer could join." : description)}";
+            });
+        };
+        var (success, errorMessage) = await signaling.ConnectAsync(Role.Server, RoomCode);
+        if (success is not true)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var msg = JsonSerializer.Deserialize<SignalingMessage>(message, SignalingUtils.Options);
-                if (msg == null) return;
-                switch (msg.Type)
-                {
-                    case "room_info":
-                        State = AppState.WaitingForConnection;
-                        var info = JsonSerializer.Deserialize<RoomInfo>(msg.Data);
-                        if (info is null) return;
-                        RoomCode = info.id;
-                        break;
-                    case "offer":
-                        var answer = await signalingUtils.ConstructAnswerAsync(msg.Data, server.Thumbprint);
-                        await server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
-                            signalingUtils.ClientThumbprint!);
-                        try
-                        {
-                            await signaling.SendAsync(answer, "answer");
-                        }
-                        catch (InvalidOperationException ex)
-                        {
-                            await Dispatcher.UIThread.InvokeAsync(() =>
-                            {
-                                State = AppState.Lobby;
-                                LobbyText = $"Could not connect to coordination server: {ex.Message}";
-                            });
-                        }
+                State = AppState.Lobby;
+                LobbyText = $"Could not connect to coordination server: {errorMessage}";
+            });
+        }        
+        var info = await signaling.RoomInfoTcs.Task;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            State = AppState.WaitingForConnection;
+            RoomCode = info.id;
+        });
 
-                        break;
-                }
-            };
-            LobbyText = "Connecting to coordination server...";
-
-            var (success, errorMessage) = await signaling.ConnectAsync(Role.Server, RoomCode);
-            if (success is not true)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    State = AppState.Lobby;
-                    LobbyText = $"Could not connect to coordination server: {errorMessage}";
-                });
-            }
+        Console.WriteLine(RoomCode);
+        
+        var offer = await signaling.OfferTcs.Task;
+        var answer = await signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint);
+        await server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
+            signalingUtils.ClientThumbprint!);
+        await server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
+            signalingUtils.ClientThumbprint!);
+        try
+        {
+            await signaling.SendAsync(answer, "answer");
         }
+        catch (InvalidOperationException ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                State = AppState.Lobby;
+                LobbyText = $"Could not connect to coordination server: {ex.Message}";
+            });
+        }
+
+        await server.ClientConnected.Task;
     }
 }

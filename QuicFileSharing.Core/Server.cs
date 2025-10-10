@@ -8,7 +8,7 @@ namespace QuicFileSharing.Core;
 public class Server: QuicPeer
 {
     private QuicListener? listener;
-    public event Action? ClientConnected;
+    public TaskCompletionSource ClientConnected { get; } = new();
     public event Action? ClientDisconnected;
     public bool IsClientConnected { get; private set; }
     
@@ -57,7 +57,7 @@ public class Server: QuicPeer
         try
         {
             connection = await listener.AcceptConnectionAsync(token);
-            IsClientConnected = true;
+            ClientConnected.SetResult();
             Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
             _ = Task.Run(HandleStreamsAsync, token);
             _ = Task.Run(PingLoopAsync, token);

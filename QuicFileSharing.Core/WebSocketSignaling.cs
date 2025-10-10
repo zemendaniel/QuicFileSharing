@@ -10,13 +10,16 @@ public enum Role
     Client
 }
 
-public class WebSocketSignaling: IDisposable
+public class WebSocketSignaling: IAsyncDisposable
 {
     private readonly string baseUri;
     private readonly CancellationTokenSource cts = new();
     private readonly ClientWebSocket ws;
     public event Action<string>? OnMessageReceived;
     public event Action<string?, string?>? OnDisconnected;
+    public TaskCompletionSource<string> OfferTcs { get; } = new();
+    public TaskCompletionSource<string> AnswerTsc { get; } = new();
+    public TaskCompletionSource<RoomInfo> RoomInfoTcs { get; } = new();
     
     public WebSocketSignaling(string baseUri)
     {
@@ -105,7 +108,23 @@ public class WebSocketSignaling: IDisposable
         try
         {
             if (string.IsNullOrWhiteSpace(message)) return;
-            OnMessageReceived?.Invoke(message);
+            // OnMessageReceived?.Invoke(message);
+            var msg = JsonSerializer.Deserialize<SignalingMessage>(message, SignalingUtils.Options);
+            if (msg == null) return;
+            switch (msg.Type)
+            {
+                case "room_info":
+                    var data = JsonSerializer.Deserialize<RoomInfo>(msg.Data);
+                    if (data is null) return;
+                    RoomInfoTcs.SetResult(data);
+                    break;
+                case "offer":
+                    OfferTcs.SetResult(msg.Data);
+                    break;
+                case "answer":
+                    AnswerTsc.SetResult(msg.Data);
+                    break;
+            }
         }
         catch
         {
@@ -144,9 +163,10 @@ public class WebSocketSignaling: IDisposable
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        CloseAsync(); // todo
+        await CloseAsync();
+        Console.WriteLine("WebSocket closed.");
     }
 }
 

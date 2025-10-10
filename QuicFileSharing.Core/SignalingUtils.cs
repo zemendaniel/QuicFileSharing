@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace QuicFileSharing.Core;
 
 
-class Offer
+public class Offer
 {
     public string? Ipv4 { get; init; }
     public string? Ipv6 { get; init; }
@@ -13,7 +13,7 @@ class Offer
     public required string ClientThumbprint { get; init; }
 }
 
-class Answer
+public class Answer
 {
     public required string Ip { get; init; }
     public required int Port { get; init; }
