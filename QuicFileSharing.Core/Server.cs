@@ -10,6 +10,7 @@ public class Server: QuicPeer
     private QuicListener? listener;
     public event Action? ClientConnected;
     public event Action? ClientDisconnected;
+    public bool IsClientConnected { get; private set; }
     
     public async Task StartAsync(bool isIpv6, int localPort, string expectedThumbprint)
     {
@@ -47,9 +48,7 @@ public class Server: QuicPeer
         cts = new CancellationTokenSource();
         token = cts.Token;
         
-        var connTask = Task.Run(AcceptConnection, token);
-        await connTask;
-        
+        _ = Task.Run(AcceptConnection, token);
     }
     private async Task AcceptConnection()
     {
@@ -58,6 +57,7 @@ public class Server: QuicPeer
         try
         {
             connection = await listener.AcceptConnectionAsync(token);
+            IsClientConnected = true;
             Console.WriteLine($"Accepted connection from {connection.RemoteEndPoint}");
             _ = Task.Run(HandleStreamsAsync, token);
             _ = Task.Run(PingLoopAsync, token);

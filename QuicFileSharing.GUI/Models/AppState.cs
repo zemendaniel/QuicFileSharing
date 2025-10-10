@@ -4,6 +4,6 @@ public enum AppState
 {
     Lobby,
     InRoom,
-    Loading,
+    WaitingForConnection,
     Settings
 }

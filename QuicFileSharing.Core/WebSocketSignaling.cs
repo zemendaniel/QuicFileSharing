@@ -10,25 +10,21 @@ public enum Role
     Client
 }
 
-class WebSocketSignaling : IDisposable
+public class WebSocketSignaling: IDisposable
 {
     private readonly string baseUri;
-    private readonly Role role;
     private readonly CancellationTokenSource cts = new();
     private readonly ClientWebSocket ws;
-    private bool disposed;
-    private Task? receiveTask;
     public event Action<string>? OnMessageReceived;
     public event Action<string?, string?>? OnDisconnected;
     
-    public WebSocketSignaling(string baseUri, Role role)
+    public WebSocketSignaling(string baseUri)
     {
         this.baseUri = baseUri;
-        this.role = role;
         ws = new ClientWebSocket();
     }
 
-    public async Task<(bool Success, string? ErrorMessage)> ConnectAsync(string? roomId = null)
+    public async Task<(bool Success, string? ErrorMessage)> ConnectAsync(Role role, string? roomId = null)
     {
         if (ws is not { State: WebSocketState.None })
             return (false, "WebSocket already connected");
@@ -46,8 +42,8 @@ class WebSocketSignaling : IDisposable
         try
         {
             await ws.ConnectAsync(uri, cts.Token);
-            receiveTask = Task.Run(ReceiveAsync, cts.Token);
-            return (true, null); // connected successfully
+            _ = Task.Run(ReceiveAsync, cts.Token);
+            return (true, null);
         }
         catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
         {
@@ -82,7 +78,7 @@ class WebSocketSignaling : IDisposable
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    HandleDisconnect(ws.CloseStatus, ws.CloseStatusDescription);
+                    await HandleDisconnect(ws.CloseStatus, ws.CloseStatusDescription);
                     return;
                 }
 
@@ -92,17 +88,16 @@ class WebSocketSignaling : IDisposable
             catch (Exception ex)
             {
                 Console.WriteLine($"Receive error: {ex.Message}");
-                HandleDisconnect(ws.CloseStatus, ws.CloseStatusDescription);
+                await HandleDisconnect(ws.CloseStatus, ws.CloseStatusDescription);
                 return;
             }
         }
     }
     
-    private void HandleDisconnect(WebSocketCloseStatus? status, string? reason)
+    private async Task HandleDisconnect(WebSocketCloseStatus? status, string? reason)
     {
-        if (disposed) return;
         OnDisconnected?.Invoke(status.ToString(), reason);
-        Dispose();
+        await CloseAsync();
     }
     
     private void HandleMessage(string message)
@@ -118,10 +113,10 @@ class WebSocketSignaling : IDisposable
         }
     }
 
-    public async Task<(bool success, string? errorMessage)>SendAsync(string message, string type)
+    public async Task SendAsync(string message, string type)
     {
         if (ws is not { State: WebSocketState.Open })
-            return (false, "WebSocket not connected");
+            throw new InvalidOperationException("WebSocket not connected");
 
         var msg = new SignalingMessage
         {
@@ -133,7 +128,6 @@ class WebSocketSignaling : IDisposable
         var bytes = Encoding.UTF8.GetBytes(json);
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
         Console.WriteLine($"[OUT] {message}");
-        return (true, null);
     }
 
     public async Task CloseAsync()
@@ -143,26 +137,16 @@ class WebSocketSignaling : IDisposable
             await cts.CancelAsync();
             if (ws is { State: WebSocketState.Open })
                 await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-            
-            if (receiveTask is { IsCompleted: false })
-                await receiveTask;
         }
         catch
         {
             // ignored
         }
-        finally
-        {
-            Dispose();
-        }
     }
 
     public void Dispose()
     {
-        if (disposed) return;
-        disposed = true;
-        cts.Dispose();
-        ws.Dispose();
+        CloseAsync(); // todo
     }
 }
 

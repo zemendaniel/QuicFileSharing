@@ -20,20 +20,25 @@ class Answer
     public required string ServerThumbprint { get; init; }
 }
 
-class RoomInfo
+public class RoomInfo
 {
     public required string id { get; init; } 
     public required int ex { get; init; }
 }
 
-class SignalingMessage
+public class SignalingMessage
 {
     public required string Type { get; init; } 
     public required string Data { get; init; }
 }
 
-class SignalingUtils
+public class SignalingUtils
 {
+    public static readonly JsonSerializerOptions Options = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+    
     public IPAddress? ChosenPeerIp { get; private set; }
     private IPAddress? ChosenOwnIp { get; set; }
     public int ChosenPeerPort { get; private set; }
