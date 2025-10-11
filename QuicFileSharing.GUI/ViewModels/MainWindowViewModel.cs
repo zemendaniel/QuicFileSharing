@@ -2,7 +2,9 @@
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,6 +12,7 @@ using Microsoft.VisualBasic.CompilerServices;
 using QuicFileSharing.Core;
 using QuicFileSharing.GUI.Models;
 using Avalonia.Styling;
+using QuicFileSharing.GUI.Views;
 
 namespace QuicFileSharing.GUI.ViewModels;
 
@@ -27,8 +30,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string lobbyText = string.Empty;
 
-    private Server? server;
-    private Client? client;
+    // private Server? server;
+    // private Client? client;
+    QuicPeer peer;
     private readonly SignalingUtils signalingUtils = new();
     // private WebSocketSignaling signaling;
     
@@ -41,7 +45,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task JoinRoom()
     {
-        client = new Client();
+        peer = new Client(); 
+        var client = (peer as Client)!;
+        
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         var cts = new CancellationTokenSource();
@@ -106,7 +112,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task CreateRoom()
     {
-        server = new Server();
+        peer = new Server();
+        var server = (peer as Server)!;
         LobbyText = "Connecting to coordination server...";
 
         await using var signaling = new WebSocketSignaling(WsBaseUri);
@@ -150,4 +157,21 @@ public partial class MainWindowViewModel : ViewModelBase
         State = AppState.InRoom;
         await Task.Run(signaling.CloseAsync);
     }
+
+    [RelayCommand]
+    private async Task SendFile(Window window) 
+    {
+        var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select file to send",
+            AllowMultiple = false
+        });
+
+        if (files.Count == 0) return;
+        var file = files[0];
+        peer.InitSend(file.Path);
+        await peer.StartSending();
+        await peer.FileTransferCompleted.Task;
+    }
+
 }

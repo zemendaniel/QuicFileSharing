@@ -27,13 +27,15 @@ public abstract class QuicPeer
     private bool? isReceiver;
     protected CancellationToken token = CancellationToken.None;
     private string? saveFolder; // sender
-    private string? filePath; // receiver
+    private Uri? filePath; // receiver
     private Dictionary<string, string>? metadata; // receiver
     private string? joinedFilePath; // receiver
     private Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
 
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource FileTransferCompleted { get; private set; } = new();
 
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
@@ -53,7 +55,7 @@ public abstract class QuicPeer
         isReceiver = true;
     }
 
-    public void InitSend(string path)
+    public void InitSend(Uri path)
     {
         filePath = path;
         isReceiver = false;
@@ -217,8 +219,8 @@ public abstract class QuicPeer
         if (isReceiver == true)
             throw new InvalidOperationException("InitSend cannot be called on a receiver.");
 
-        var fileInfo = new FileInfo(filePath);
-        var fileName = Path.GetFileName(filePath);
+        var fileInfo = new FileInfo(filePath.AbsolutePath);
+        var fileName = Path.GetFileName(filePath.AbsolutePath);
         var fileSize = fileInfo.Length;
         var meta = new Dictionary<string, string>
         {
@@ -245,7 +247,7 @@ public abstract class QuicPeer
             .Unwrap();
 
         await using var inputFile = new FileStream(
-            path: filePath,
+            path: filePath.AbsolutePath,
             mode: FileMode.Open,
             access: FileAccess.Read,
             share: FileShare.Read,
@@ -272,6 +274,9 @@ public abstract class QuicPeer
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
         await QueueControlMessage($"FILE_SENT:{fileHash}");
+        FileTransferCompleted?.SetResult();
+        
+        FileTransferCompleted = new();
     }
 
     private async Task ReceiveFileAsync()
@@ -345,14 +350,15 @@ public abstract class QuicPeer
             Console.WriteLine("[SUCCESS] File received successfully.");
             await QueueControlMessage("RECEIVED_FILE:OK");
         }
-
+        FileTransferCompleted?.SetResult();
         Console.WriteLine($"File was saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine(
             $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
 
         metadata = null;
         joinedFilePath = null;
-        fileHashReady = null;
+        fileHashReady = new();
+        FileTransferCompleted = new();
     }
 
 

@@ -47,6 +47,7 @@
         <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.InRoom}}">
             <SelectableTextBlock Text="You are in a room"></SelectableTextBlock>
             <TextBlock Text="{Binding RoomCode}"></TextBlock>
+            <Button Content="Send File" Command="{Binding SendFileCommand}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
         </StackPanel>
     </Grid>
     
