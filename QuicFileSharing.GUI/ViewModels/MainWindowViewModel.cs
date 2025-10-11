@@ -44,30 +44,29 @@ public partial class MainWindowViewModel : ViewModelBase
         client = new Client();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
-        // todo cancellationToken instead of this boolean
-        var gotDisconnected = false;
+        var cts = new CancellationTokenSource();
 
-        signaling.OnDisconnected += (_, description) =>
+        signaling.OnDisconnected += async (_, description) =>
         {
             if (client.GotConnected) return;
+            if (cts.Token.IsCancellationRequested) return;
+            await cts.CancelAsync();
             State = AppState.Lobby;
             LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
-            gotDisconnected = true;
         };
         LobbyText = "Connecting to coordination server...";
-        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Client, RoomCode));
+        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Client, RoomCode.Trim().ToLower()), cts.Token);
         if (success is not true)
         {
             State = AppState.Lobby;
             LobbyText = $"Could not connect to coordination server: {errorMessage}";
             return;
         }
-        var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint));
+        var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint), cts.Token);
         
         try
         {
-            if (gotDisconnected) return;
-            await Task.Run(() => signaling.SendAsync(offer, "offer"));
+            await Task.Run(() => signaling.SendAsync(offer, "offer"), cts.Token);
         }
         catch (InvalidOperationException ex)
         {
@@ -87,21 +86,21 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await Task.Run(() => client.StartAsync(
                 signalingUtils.ChosenPeerIp,
-                signalingUtils.ChosenPeerPort +1,
+                signalingUtils.ChosenPeerPort,
                 signalingUtils.IsIpv6,
                 signalingUtils.ChosenOwnPort,
-                signalingUtils.ServerThumbprint!));
+                signalingUtils.ServerThumbprint!), cts.Token);
         }
         catch (Exception ex)
         {
 
-            gotDisconnected = true;
+            await cts.CancelAsync();
             LobbyText = "Could not connect to peer: " + ex.Message;
             return;
         }
 
         State = AppState.InRoom;
-        await Task.Run(signaling.CloseAsync);
+        await Task.Run(signaling.CloseAsync, cts.Token);
     }
 
     [RelayCommand]
