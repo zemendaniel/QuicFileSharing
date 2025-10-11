@@ -63,7 +63,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
         var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint), cts.Token);
-        
+
         try
         {
             await Task.Run(() => signaling.SendAsync(offer, "offer"), cts.Token);
@@ -120,7 +120,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 "The signaling was closed before your peer could join." : description)}";
         };
         var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Server));
-        // var (success, errorMessage) = await signaling.ConnectAsync(Role.Server, RoomCode);
         if (success is not true)
         { 
             State = AppState.Lobby; 
