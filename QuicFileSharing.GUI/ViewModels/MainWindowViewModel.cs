@@ -82,13 +82,24 @@ public partial class MainWindowViewModel : ViewModelBase
             LobbyText = "Could not connect to peer: Could not agree on IP generation.";
             return;
         }
-        await Task.Run(() => client.StartAsync(
-            signalingUtils.ChosenPeerIp,
-            signalingUtils.ChosenPeerPort,
-            signalingUtils.IsIpv6,
-            signalingUtils.ChosenOwnPort,
-            signalingUtils.ServerThumbprint!));
-        
+
+        try
+        {
+            await Task.Run(() => client.StartAsync(
+                signalingUtils.ChosenPeerIp,
+                signalingUtils.ChosenPeerPort +1,
+                signalingUtils.IsIpv6,
+                signalingUtils.ChosenOwnPort,
+                signalingUtils.ServerThumbprint!));
+        }
+        catch (Exception ex)
+        {
+
+            gotDisconnected = true;
+            LobbyText = "Could not connect to peer: " + ex.Message;
+            return;
+        }
+
         State = AppState.InRoom;
         await Task.Run(signaling.CloseAsync);
     }

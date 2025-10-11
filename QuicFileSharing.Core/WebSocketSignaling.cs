@@ -90,7 +90,7 @@ public class WebSocketSignaling: IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Receive error: {ex.Message}");
+                // Console.WriteLine($"Receive error: {ex.Message}");
                 await HandleDisconnect(ws.CloseStatus, ws.CloseStatusDescription);
                 return;
             }
