@@ -193,11 +193,11 @@ public abstract class QuicPeer
                 {
                     case "OK":
                         Console.WriteLine("Receiver confirmed file was received successfully.");
-                        FileTransferCompleted.SetResult(true);
+                        FileTransferCompleted?.SetResult(true);
                         break;
                     case "FAILED":
                         Console.WriteLine("Receiver did not receive the file successfully (integrity check failed).");
-                        FileTransferCompleted.SetResult(false);
+                        FileTransferCompleted?.SetResult(false);
                         break;
                     default:
                         Console.WriteLine($"Unknown status: {status}");
@@ -228,6 +228,7 @@ public abstract class QuicPeer
                 FileOfferDecisionTsc = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 OnFileOffered?.Invoke(metadata["FileName"], long.Parse(metadata["FileSize"]));
                 var (accepted, path) = await FileOfferDecisionTsc.Task;
+                Console.WriteLine("got result2");
                 
                 if (!accepted)
                 {

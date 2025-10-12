@@ -21,7 +21,7 @@ namespace QuicFileSharing.GUI.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
 {
-    private const string WsBaseUri = "ws://vps.zemendaniel.hu:8080";
+    private const string WsBaseUri = "ws://152.53.123.174:8080";
     [ObservableProperty]
     private AppState state = AppState.Lobby;
     [ObservableProperty]
@@ -151,7 +151,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var offer = await signaling.OfferTcs.Task;
         var answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint));
         await Task.Run(() => server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
-            signalingUtils.ClientThumbprint!));;
+            signalingUtils.ClientThumbprint!));
         
         try
         {
@@ -193,9 +193,9 @@ public partial class MainWindowViewModel : ViewModelBase
             State = AppState.Lobby;
             LobbyText = "Connection Error: You got disconnected from your peer.";
         };
-        peer.OnFileOffered += (fileName, fileSize) =>
+        peer.OnFileOffered += async (fileName, fileSize) =>
         {
-            Dispatcher.UIThread.Post(async () =>
+            await Dispatcher.UIThread.InvokeAsync( async () =>
             {
                 Console.WriteLine("file offered");
                 var dialog = new FileOfferDialog
@@ -204,10 +204,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 };
                 if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
+                    Console.WriteLine("showing dialog");
                     await dialog.ShowDialog(desktop.MainWindow);
                 }
                 var vm = (FileOfferDialogViewModel)dialog.DataContext;
                 var (accepted, path) = await vm.ResultTask;
+                Console.WriteLine("got result");
                 peer.FileOfferDecisionTsc.SetResult((accepted, path));
             });
         };

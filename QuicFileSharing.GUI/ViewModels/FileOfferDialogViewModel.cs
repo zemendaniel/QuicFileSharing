@@ -7,9 +7,10 @@ using Avalonia.Platform.Storage;
 
 namespace QuicFileSharing.GUI.ViewModels;
 
-public partial class FileOfferDialogViewModel : ObservableObject
+public partial class FileOfferDialogViewModel : ViewModelBase
 {
-    public string Message { get; }
+    [ObservableProperty]
+    private string message = string.Empty;
 
     private TaskCompletionSource<(bool accepted, Uri? path)> tcs = new();
 
@@ -27,6 +28,7 @@ public partial class FileOfferDialogViewModel : ObservableObject
         {
             Title = "Select folder to save the file"
         });
+        Console.WriteLine("Selected folder");
         if (folders.Count > 0)
             tcs.SetResult((true, folders[0].Path));
         else
