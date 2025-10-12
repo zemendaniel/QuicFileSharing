@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Net.Mime;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -177,7 +180,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (files.Count == 0) return;
         var file = files[0];
-        peer.SetReceivePath(file.Path);
+        peer.SetSendPath(file.Path);
         await peer.StartSending();
         var success = await peer.FileTransferCompleted.Task;
         Console.WriteLine("File transfer completed.");
@@ -190,9 +193,23 @@ public partial class MainWindowViewModel : ViewModelBase
             State = AppState.Lobby;
             LobbyText = "Connection Error: You got disconnected from your peer.";
         };
-        peer.OnFileOffered = async (fileName, fileSize) =>
+        peer.OnFileOffered += (fileName, fileSize) =>
         {
-            return (true, new Uri(""));
+            Dispatcher.UIThread.Post(async () =>
+            {
+                Console.WriteLine("file offered");
+                var dialog = new FileOfferDialog
+                {
+                    DataContext = new FileOfferDialogViewModel(fileName, fileSize)
+                };
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    await dialog.ShowDialog(desktop.MainWindow);
+                }
+                var vm = (FileOfferDialogViewModel)dialog.DataContext;
+                var (accepted, path) = await vm.ResultTask;
+                peer.FileOfferDecisionTsc.SetResult((accepted, path));
+            });
         };
     }
 }

@@ -9,7 +9,7 @@ using System.Threading.Channels;
 
 namespace QuicFileSharing.Core;
 
-public delegate Task<(bool, Uri?)> OnFileOffered(string filePath, long fileSize);
+// public delegate Task<(bool, Uri?)> OnFileOffered(string filePath, long fileSize);
 
 public abstract class QuicPeer
 {
@@ -36,26 +36,29 @@ public abstract class QuicPeer
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TaskCompletionSource<bool> FileTransferCompleted { get; private set; } = new();
+    public TaskCompletionSource<bool>? FileTransferCompleted { get; private set; }
 
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
+    private bool isTransferInProgress;
     
     // private TaskCompletionSource<bool> fileAcceptanceTsc = new();
 
-    private DateTime lastKeepAliveReceived = DateTime.UtcNow;
+    private DateTime? lastKeepAliveReceived;
     private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15); // adjust if needed
     private static readonly TimeSpan pingInterval = TimeSpan.FromSeconds(2); // adjust if needed
     private static readonly int fileChunkSize = 16 * 1024 * 1024;
     private static readonly int messageChunkSize = 1024;
     private static readonly int fileBufferSize = 1014 * 1024;
     
-    public OnFileOffered OnFileOffered { get; set; }
+    // public OnFileOffered OnFileOffered { get; set; }
 
     // public event Action? ConnectionReady;
     public event Action? OnDisconnected;
     public event Action<string>? OnFileRejected;
+    public event Action<string, long>? OnFileOffered;
+    public TaskCompletionSource<(bool, Uri?)> FileOfferDecisionTsc { get; private set; } = new();
 
     public void SetReceivePath(Uri folder)
     {
@@ -111,7 +114,7 @@ public abstract class QuicPeer
                 var payload = await ReadMessageAsync();
                 if (payload == null) break; // stream closed
                 var message = Encoding.UTF8.GetString(payload);
-                await HandleControlMessage(message);
+                _ = Task.Run(() => HandleControlMessage(message), token);
             }
         }, token);
 
@@ -163,9 +166,11 @@ public abstract class QuicPeer
         metadata = null;
         joinedFilePath = null;
         fileHashReady = null;
-        FileTransferCompleted = new();
+        // FileTransferCompleted = new();
+        // FileOfferDecisionTsc = new();
         filePath = null;
         saveFolder = null;
+        isTransferInProgress = false;
     }
     
     private async Task HandleControlMessage(string? line)
@@ -202,6 +207,13 @@ public abstract class QuicPeer
                 break;
             
             case var s when line.StartsWith("METADATA:"):   // Receiver gets this, marks start of file transfer
+                if (isTransferInProgress)
+                {
+                    await QueueControlMessage("REJECTED:ALREADY_RECEIVING");
+                    return;
+                }
+                isTransferInProgress = true;
+
                 if (IsSending)
                 {
                     Console.WriteLine("file rejected");
@@ -212,7 +224,11 @@ public abstract class QuicPeer
                 metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)!;
                 Console.WriteLine($"Received metadata: {string.Join(", ", metadata)}");
                 
-                var (accepted, path) = await OnFileOffered(metadata["FileName"], long.Parse(metadata["FileSize"]));
+                // var (accepted, path) = await OnFileOffered(metadata["FileName"], long.Parse(metadata["FileSize"]));
+                FileOfferDecisionTsc = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                OnFileOffered?.Invoke(metadata["FileName"], long.Parse(metadata["FileSize"]));
+                var (accepted, path) = await FileOfferDecisionTsc.Task;
+                
                 if (!accepted)
                 {
                     Console.WriteLine("File rejected.");
@@ -257,6 +273,7 @@ public abstract class QuicPeer
 
     public async Task StartSending()
     {
+        FileTransferCompleted = new();
         await WaitForStreamsAsync();
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
@@ -277,6 +294,11 @@ public abstract class QuicPeer
 
     private async Task SendFileAsync()
     {
+        if (isTransferInProgress)
+            return;
+        
+        isTransferInProgress = true;
+        
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
         if (fileStream == null)
