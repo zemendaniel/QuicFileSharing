@@ -9,6 +9,7 @@ using System.Threading.Channels;
 
 namespace QuicFileSharing.Core;
 
+public delegate Task<(bool, Uri?)> OnFileOffered(string filePath, long fileSize);
 
 public abstract class QuicPeer
 {
@@ -24,9 +25,9 @@ public abstract class QuicPeer
     // protected bool isReceivingFile = false;
     // protected bool isSendingFile = false;
 
-    private bool? isReceiver;
+    public bool IsSending { get; set; }
     protected CancellationToken token = CancellationToken.None;
-    private string? saveFolder; // sender
+    private Uri? saveFolder; // sender
     private Uri? filePath; // receiver
     private Dictionary<string, string>? metadata; // receiver
     private string? joinedFilePath; // receiver
@@ -35,30 +36,36 @@ public abstract class QuicPeer
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TaskCompletionSource FileTransferCompleted { get; private set; } = new();
+    public TaskCompletionSource<bool> FileTransferCompleted { get; private set; } = new();
 
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
     private bool fileReady;
+    
+    // private TaskCompletionSource<bool> fileAcceptanceTsc = new();
 
-    private DateTime? lastKeepAliveReceived;
+    private DateTime lastKeepAliveReceived = DateTime.UtcNow;
     private static readonly TimeSpan connectionTimeout = TimeSpan.FromSeconds(15); // adjust if needed
+    private static readonly TimeSpan pingInterval = TimeSpan.FromSeconds(2); // adjust if needed
     private static readonly int fileChunkSize = 16 * 1024 * 1024;
     private static readonly int messageChunkSize = 1024;
     private static readonly int fileBufferSize = 1014 * 1024;
+    
+    public OnFileOffered OnFileOffered { get; set; }
 
-    public event Action? ConnectionReady;
+    // public event Action? ConnectionReady;
+    public event Action? OnDisconnected;
+    public event Action<string>? OnFileRejected;
 
-    public void InitReceive(string folder)
+    public void SetReceivePath(Uri folder)
     {
         saveFolder = folder;
-        isReceiver = true;
     }
 
-    public void InitSend(Uri path)
+    public void SetSendPath(Uri path)
     {
         filePath = path;
-        isReceiver = false;
+        // IsSending = true;
     }
 
     protected void SetControlStream()
@@ -80,7 +87,6 @@ public abstract class QuicPeer
         if (controlReady && fileReady)
         {
             bothStreamsReady.TrySetResult();
-            ConnectionReady?.Invoke();
         }
     }
 
@@ -151,8 +157,17 @@ public abstract class QuicPeer
         return payload;
     }
 
-
-
+    private void ResetAfterFileTransferCompleted()
+    {
+        IsSending = false;
+        metadata = null;
+        joinedFilePath = null;
+        fileHashReady = null;
+        FileTransferCompleted = new();
+        filePath = null;
+        saveFolder = null;
+    }
+    
     private async Task HandleControlMessage(string? line)
     {
         switch (line)
@@ -166,32 +181,49 @@ public abstract class QuicPeer
                 Console.WriteLine("Receiver is ready, starting file send...");
                 _ = Task.Run(SendFileAsync, token);
                 break;
-            case var s when line.StartsWith("RECEIVED_FILE:"): // Sender gets this
+            case var s when line.StartsWith("RECEIVED_FILE:"): // Sender gets this, marks the end of file transfer
+                ResetAfterFileTransferCompleted();
                 var status = line["RECEIVED_FILE:".Length..];
                 switch (status)
                 {
                     case "OK":
                         Console.WriteLine("Receiver confirmed file was received successfully.");
+                        FileTransferCompleted.SetResult(true);
                         break;
                     case "FAILED":
                         Console.WriteLine("Receiver did not receive the file successfully (integrity check failed).");
+                        FileTransferCompleted.SetResult(false);
                         break;
                     default:
                         Console.WriteLine($"Unknown status: {status}");
                         break;
                 }
-
-                isReceiver = false;
+                ResetAfterFileTransferCompleted();
                 break;
-            case var s when line.StartsWith("METADATA:"):
-                // Todo accept or reject file (enough after I've built the GUI)
-                // Todo specify
-                if (saveFolder == null)
-                    throw new InvalidOperationException("Save folder not initialized.");
+            
+            case var s when line.StartsWith("METADATA:"):   // Receiver gets this, marks start of file transfer
+                if (IsSending)
+                {
+                    Console.WriteLine("file rejected");
+                    await QueueControlMessage("REJECTED:ALREADY_SENDING");
+                    return;
+                }
                 var json = line["METADATA:".Length..];
                 metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)!;
                 Console.WriteLine($"Received metadata: {string.Join(", ", metadata)}");
-                joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
+                
+                var (accepted, path) = await OnFileOffered(metadata["FileName"], long.Parse(metadata["FileSize"]));
+                if (!accepted)
+                {
+                    Console.WriteLine("File rejected.");
+                    await QueueControlMessage("REJECTED:UNWANTED");
+                    return;
+                }
+                saveFolder = path;
+                
+                if (saveFolder == null)
+                    throw new InvalidOperationException("Save folder not initialized.");
+                joinedFilePath = Path.Combine(saveFolder.AbsolutePath, metadata["FileName"]);
                 fileHashReady = new TaskCompletionSource<string>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 await QueueControlMessage("READY");
@@ -205,6 +237,18 @@ public abstract class QuicPeer
                 Console.WriteLine($"Received file hash: {hash}");
                 fileHashReady.SetResult(hash);
                 break;
+            case var s when s.StartsWith("REJECTED:"): 
+                var reason = s["REJECTED:".Length..];
+                switch (reason)
+                {
+                    case "ALREADY_SENDING":
+                        OnFileRejected?.Invoke("File rejected: Peer is already sending or preparing to send a file.");
+                        break;
+                    case "UNWANTED":
+                        OnFileRejected?.Invoke("File rejected: Peer does not want this file.");
+                        break;
+                }
+                break;
             default:
                 Console.WriteLine($"Unknown control message: {line}");
                 break;
@@ -216,7 +260,7 @@ public abstract class QuicPeer
         await WaitForStreamsAsync();
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
-        if (isReceiver == true)
+        if (!IsSending)
             throw new InvalidOperationException("InitSend cannot be called on a receiver.");
 
         var fileInfo = new FileInfo(filePath.AbsolutePath);
@@ -274,9 +318,6 @@ public abstract class QuicPeer
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
         await QueueControlMessage($"FILE_SENT:{fileHash}");
-        FileTransferCompleted?.SetResult();
-        
-        FileTransferCompleted = new();
     }
 
     private async Task ReceiveFileAsync()
@@ -340,7 +381,8 @@ public abstract class QuicPeer
         await outputFile.FlushAsync(token);
 
         var expectedFileHash = await fileHashReady!.Task;
-        if (actualFileHash != expectedFileHash)
+        var success = actualFileHash == expectedFileHash;
+        if (!success)
         {
             Console.WriteLine("[ERROR] File integrity check failed.");
             await QueueControlMessage("RECEIVED_FILE:FAILED");
@@ -350,15 +392,11 @@ public abstract class QuicPeer
             Console.WriteLine("[SUCCESS] File received successfully.");
             await QueueControlMessage("RECEIVED_FILE:OK");
         }
-        FileTransferCompleted?.SetResult();
+        FileTransferCompleted.SetResult(success);
         Console.WriteLine($"File was saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine(
             $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");
-
-        metadata = null;
-        joinedFilePath = null;
-        fileHashReady = new();
-        FileTransferCompleted = new();
+        ResetAfterFileTransferCompleted();
     }
 
 
@@ -388,7 +426,7 @@ public abstract class QuicPeer
     {
         while (!token.IsCancellationRequested)
         {
-            await Task.Delay(connectionTimeout, token);
+            await Task.Delay(pingInterval, token);
             await QueueControlMessage("PING");
         }
     }
@@ -397,17 +435,18 @@ public abstract class QuicPeer
     {
         while (!token.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            await Task.Delay(pingInterval, token);
             if (DateTime.UtcNow - lastKeepAliveReceived > connectionTimeout)
             {
                 Console.WriteLine("[ERROR] Connection timed out.");
+                OnDisconnected?.Invoke();
                 await StopAsync();
                 break;
             }
         }
     }
 
-    public static X509Certificate2 CreateSelfSignedCertificate()
+    private static X509Certificate2 CreateSelfSignedCertificate()
     {
         using var rsa = new RSACryptoServiceProvider(2048);
         var request = new CertificateRequest(
@@ -422,5 +461,4 @@ public abstract class QuicPeer
 
         return new X509Certificate2(cert.Export(X509ContentType.Pfx));
     }
-    
 }

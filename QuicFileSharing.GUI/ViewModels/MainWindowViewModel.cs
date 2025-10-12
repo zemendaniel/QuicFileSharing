@@ -29,25 +29,19 @@ public partial class MainWindowViewModel : ViewModelBase
     private string statusMessage = string.Empty;
     [ObservableProperty]
     private string lobbyText = string.Empty;
-
-    // private Server? server;
-    // private Client? client;
-    QuicPeer peer;
-    private readonly SignalingUtils signalingUtils = new();
-    // private WebSocketSignaling signaling;
     
-
-    public MainWindowViewModel()
-    {
-        
-    }
-
+    private QuicPeer peer;
+    // private readonly SignalingUtils signalingUtils = new();
+    // private CancellationTokenSource quicCts = new();
+    
     [RelayCommand]
     private async Task JoinRoom()
     {
         peer = new Client(); 
+        SetPeerHandlers();
         var client = (peer as Client)!;
         
+        var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         var cts = new CancellationTokenSource();
@@ -61,61 +55,74 @@ public partial class MainWindowViewModel : ViewModelBase
             LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
         };
         LobbyText = "Connecting to coordination server...";
-        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Client, RoomCode.Trim().ToLower()), cts.Token);
-        if (success is not true)
-        {
-            State = AppState.Lobby;
-            LobbyText = $"Could not connect to coordination server: {errorMessage}";
-            return;
-        }
-        var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint), cts.Token);
-
         try
         {
-            await Task.Run(() => signaling.SendAsync(offer, "offer"), cts.Token);
-        }
-        catch (InvalidOperationException ex)
-        {
-            LobbyText = $"Could not connect to coordination server: {ex.Message}";
-        }
+            var (success, errorMessage) =
+                await Task.Run(() => signaling.ConnectAsync(Role.Client, RoomCode.Trim().ToLower()), cts.Token);
+            if (success is not true)
+            {
+                State = AppState.Lobby;
+                LobbyText = $"Could not connect to coordination server: {errorMessage}";
+                return;
+            }
 
-        var answer = await signaling.AnswerTsc.Task;
-        LobbyText = "Connecting to peer...";
-        signalingUtils.ProcessAnswer(answer);
-        if (signalingUtils.ChosenPeerIp == null)
-        {
-            LobbyText = "Could not connect to peer: Could not agree on IP generation.";
-            return;
-        }
+            var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint), cts.Token);
 
-        try
-        {
-            await Task.Run(() => client.StartAsync(
-                signalingUtils.ChosenPeerIp,
-                signalingUtils.ChosenPeerPort,
-                signalingUtils.IsIpv6,
-                signalingUtils.ChosenOwnPort,
-                signalingUtils.ServerThumbprint!), cts.Token);
-        }
-        catch (Exception ex)
-        {
+            try
+            {
+                await Task.Run(() => signaling.SendAsync(offer, "offer"), cts.Token);
+            }
+            catch (InvalidOperationException ex)
+            {
+                LobbyText = $"Could not connect to coordination server: {ex.Message}";
+            }
 
-            await cts.CancelAsync();
-            LobbyText = "Could not connect to peer: " + ex.Message;
-            return;
-        }
+            var answer = await signaling.AnswerTsc.Task;
+            LobbyText = "Connecting to peer...";
+            signalingUtils.ProcessAnswer(answer);
+            if (signalingUtils.ChosenPeerIp == null)
+            {
+                LobbyText = "Could not connect to peer: Could not agree on IP generation.";
+                return;
+            }
 
-        State = AppState.InRoom;
-        await Task.Run(signaling.CloseAsync, cts.Token);
+            try
+            {
+                await Task.Run(() => client.StartAsync(
+                    signalingUtils.ChosenPeerIp,
+                    signalingUtils.ChosenPeerPort,
+                    signalingUtils.IsIpv6,
+                    signalingUtils.ChosenOwnPort,
+                    signalingUtils.ServerThumbprint!), cts.Token);
+            }
+            catch (Exception ex)
+            {
+
+                await cts.CancelAsync();
+                LobbyText = "Could not connect to peer: " + ex.Message;
+                return;
+            }
+
+            State = AppState.InRoom;
+            await Task.Run(signaling.CloseAsync, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
+        }
     }
 
     [RelayCommand]
     private async Task CreateRoom()
     {
         peer = new Server();
-        var server = (peer as Server)!;
-        LobbyText = "Connecting to coordination server...";
+        SetPeerHandlers();
+        // peer.InitReceive(new Uri(@"D:\"));
 
+        LobbyText = "Connecting to coordination server...";
+        var server = (peer as Server)!;
+
+        var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         signaling.OnDisconnected += (_, description) =>
@@ -161,6 +168,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task SendFile(Window window) 
     {
+        peer.IsSending = true;
         var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Select file to send",
@@ -169,9 +177,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (files.Count == 0) return;
         var file = files[0];
-        peer.InitSend(file.Path);
+        peer.SetReceivePath(file.Path);
         await peer.StartSending();
-        await peer.FileTransferCompleted.Task;
+        var success = await peer.FileTransferCompleted.Task;
+        Console.WriteLine("File transfer completed.");
     }
 
+    private void SetPeerHandlers()
+    {
+        peer.OnDisconnected += () =>
+        {
+            State = AppState.Lobby;
+            LobbyText = "Connection Error: You got disconnected from your peer.";
+        };
+        peer.OnFileOffered = async (fileName, fileSize) =>
+        {
+            return (true, new Uri(""));
+        };
+    }
 }
