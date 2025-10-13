@@ -20,7 +20,7 @@ public partial class FileOfferDialogViewModel : ViewModelBase
 
     public FileOfferDialogViewModel(string fileName, long fileSize)
     {
-        Message = $"Incoming file: {fileName} ({fileSize / 1024.0 / 1024.0:F2} MB)";
+        Message = $"Incoming file: {fileName} ({FormatBytes(fileSize)})";
     }
 
     [RelayCommand]

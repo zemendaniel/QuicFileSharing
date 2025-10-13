@@ -38,11 +38,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string roomText = string.Empty;
     [ObservableProperty]
-    private double progress;
+    private double progressPercentage; 
+    [ObservableProperty]
+    private string progressText = string.Empty;
+
+    // [ObservableProperty] 
+    // private bool isTransferring => peer.IsTransferInProgress; 
     
     private QuicPeer peer;
-    // private CancellationTokenSource? transferCts;
-   
     
     [RelayCommand]
     private async Task JoinRoom()
@@ -208,6 +211,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void SetPeerHandlers()
     {
+        
         peer.OnDisconnected += () =>
         {
             State = AppState.Lobby;
@@ -256,7 +260,7 @@ public partial class MainWindowViewModel : ViewModelBase
         switch (status)
         {
             case FileTransferStatus.HashFailed:
-                RoomText = "Error: File integrity check failed.";
+                RoomText = "Error: File transfer was not successful because the file got corrupted during transfer.";
                 break;
             case FileTransferStatus.RejectedAlreadySending:
                 RoomText = "File rejected: Your peer is already sending or preparing to send a file.";
@@ -278,9 +282,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void TrackProgress()
     {
-        peer.FileTransferProgress = new Progress<double>(progress =>
+        peer.FileTransferProgress = new Progress<ProgressInfo>(info =>
         {
-            Progress = progress;
+            ProgressPercentage = info.Percentage;
+            ProgressText = $"{FormatBytes(info.BytesTransferred)} / {FormatBytes(info.TotalBytes)}" +
+                           (info.SpeedBytesPerSecond > 0 ? $" ({FormatBytes((long)info.SpeedBytesPerSecond)}/s)" : "");
         });
     }
+    
+    
 }

@@ -49,7 +49,14 @@
             <TextBlock Text="{Binding RoomCode}"></TextBlock>
             <Button Content="Send File" Command="{Binding SendFileCommand}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
             <TextBlock Text="{Binding RoomText}"></TextBlock>
-            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}"></ProgressBar>
+            <StackPanel Orientation="Vertical" Margin="10" Spacing="10" Width="300">
+                <ProgressBar Minimum="0" Maximum="100"
+                             Value="{Binding ProgressPercentage}" Height="20"/>
+    
+                <TextBlock Text="{Binding ProgressText}" FontWeight="Bold"/>
+    
+            </StackPanel>
+
         </StackPanel> 
     </Grid>
     

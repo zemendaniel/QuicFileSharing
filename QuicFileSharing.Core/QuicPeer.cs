@@ -22,6 +22,18 @@ public enum FileTransferStatus
     Etc
 }
 
+public class ProgressInfo
+{
+    public long BytesTransferred { get; set; }
+    public long TotalBytes { get; set; }
+    public double Percentage => TotalBytes == 0 ? 0 : (double)BytesTransferred / TotalBytes * 100;
+    public double SpeedBytesPerSecond { get; set; } 
+    public TimeSpan? EstimatedRemaining => SpeedBytesPerSecond > 0
+        ? TimeSpan.FromSeconds((TotalBytes - BytesTransferred) / SpeedBytesPerSecond)
+        : null;
+}
+
+
 
 public abstract class QuicPeer
 {
@@ -51,6 +63,8 @@ public abstract class QuicPeer
     private bool fileReady;
     private bool isTransferInProgress;
     
+    public bool IsTransferInProgress => isTransferInProgress;
+    
     // private TaskCompletionSource<bool> fileAcceptanceTsc = new();
 
     private DateTime? lastKeepAliveReceived;
@@ -66,7 +80,7 @@ public abstract class QuicPeer
     public event Action? OnDisconnected;
     public event Action<string>? OnFileRejected;
     public event Action<string, long>? OnFileOffered;
-    public IProgress<double>? FileTransferProgress { get; set; }
+    public IProgress<ProgressInfo>? FileTransferProgress { get; set; }
     public TaskCompletionSource<(bool, string?)> FileOfferDecisionTsc { get; private set; } = new();
 
     // public void SetReceivePath(string folder)
@@ -338,7 +352,14 @@ public abstract class QuicPeer
             bufferSize: fileBufferSize,
             useAsync: true
         );
-
+        
+        long totalBytesSent = 0;
+        var fileSize = inputFile.Length;
+        var stopwatch = Stopwatch.StartNew();
+        long previousBytes = 0;
+        var speedInterval = TimeSpan.FromSeconds(0.5);
+        var lastSpeedUpdate = stopwatch.Elapsed;
+        
         while (true)
         {
             var buffer = ArrayPool<byte>.Shared.Rent(fileChunkSize);
@@ -351,10 +372,33 @@ public abstract class QuicPeer
 
             await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
             await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
-            Console.WriteLine($"Sent chunk: {bytesRead} bytes");
+
+            totalBytesSent += bytesRead;
+            var elapsed = stopwatch.Elapsed - lastSpeedUpdate;
+            if (elapsed >= speedInterval)
+            {
+                var speed = (totalBytesSent - previousBytes) / elapsed.TotalSeconds;
+                previousBytes = totalBytesSent;
+                lastSpeedUpdate = stopwatch.Elapsed;
+                FileTransferProgress?.Report(new ProgressInfo
+                {
+                    BytesTransferred = totalBytesSent,
+                    TotalBytes = fileSize,
+                    SpeedBytesPerSecond = speed
+                });
+            }
         }
 
+        await fileStream.FlushAsync(token);
         hashQueue.Writer.Complete();
+        
+        FileTransferProgress?.Report(new ProgressInfo
+        {
+            BytesTransferred = totalBytesSent,
+            TotalBytes = fileSize,
+            SpeedBytesPerSecond = 0
+        });
+        
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
         await QueueControlMessage($"FILE_SENT:{fileHash}");
@@ -391,6 +435,9 @@ public abstract class QuicPeer
             useAsync: true);
 
         var stopwatch = Stopwatch.StartNew();
+        long previousBytes = 0;
+        var speedInterval = TimeSpan.FromSeconds(0.5);
+        var lastSpeedUpdate = stopwatch.Elapsed;
 
         while (totalBytesReceived < fileSize)
         {
@@ -406,10 +453,30 @@ public abstract class QuicPeer
             await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
             await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
             totalBytesReceived += bytesRead;
-            FileTransferProgress?.Report((double)totalBytesReceived / fileSize);
+            
+            var elapsed = stopwatch.Elapsed - lastSpeedUpdate;
+            if (elapsed < speedInterval) continue;
+            
+            var speed = (totalBytesReceived - previousBytes) / elapsed.TotalSeconds;
+            previousBytes = totalBytesReceived;
+            lastSpeedUpdate = stopwatch.Elapsed;
+            FileTransferProgress?.Report(new ProgressInfo
+            {
+                BytesTransferred = totalBytesReceived,
+                TotalBytes = fileSize,
+                SpeedBytesPerSecond = speed
+            });
+            
         }
 
         hashQueue.Writer.Complete();
+        
+        FileTransferProgress?.Report(new ProgressInfo
+        {
+            BytesTransferred = totalBytesReceived,
+            TotalBytes = fileSize,
+            SpeedBytesPerSecond = 0
+        });
 
         var actualFileHash = await hashTask;
         Console.WriteLine($"SHA256: {actualFileHash}");

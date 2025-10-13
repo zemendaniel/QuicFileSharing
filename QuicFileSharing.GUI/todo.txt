@@ -1,0 +1,8 @@
+stun for ipv4 and ipv6
+a lot of testing!!!!
+settings page
+disable, enable buttons, proper ui
+dns is really slow
+reset progress bar
+ui notifications in receiving too
+pause, resume later, cancel
