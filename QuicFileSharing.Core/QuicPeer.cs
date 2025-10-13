@@ -19,7 +19,7 @@ public enum FileTransferStatus
     RejectedAlreadySending,
     RejectedAlreadyReceiving,
     RejectedUnwanted,
-    RejectedByMe
+    Etc
 }
 
 
@@ -240,7 +240,7 @@ public abstract class QuicPeer
                 if (!accepted)
                 {
                     await QueueControlMessage("REJECTED:UNWANTED");
-                    FileTransferCompleted?.SetResult(FileTransferStatus.RejectedByMe);
+                    FileTransferCompleted?.SetResult(FileTransferStatus.Etc);
                     ResetAfterFileTransferCompleted();
                     return;
                 }
