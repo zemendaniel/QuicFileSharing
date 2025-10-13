@@ -2,6 +2,7 @@
 using System.IO;
 using System.Net.Mime;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -285,10 +286,40 @@ public partial class MainWindowViewModel : ViewModelBase
         peer.FileTransferProgress = new Progress<ProgressInfo>(info =>
         {
             ProgressPercentage = info.Percentage;
-            ProgressText = $"{FormatBytes(info.BytesTransferred)} / {FormatBytes(info.TotalBytes)}" +
-                           (info.SpeedBytesPerSecond > 0 ? $" ({FormatBytes((long)info.SpeedBytesPerSecond)}/s)" : "");
+
+            var sb = new StringBuilder();
+            sb.Append($"{FormatBytes(info.BytesTransferred)} / {FormatBytes(info.TotalBytes)}");
+
+            if (info.SpeedBytesPerSecond > 0)
+                sb.Append($" ({FormatBytes((long)info.SpeedBytesPerSecond)}/s)");
+
+            if (info.EstimatedRemaining is { } eta)
+                sb.Append($" ({FormatTime(eta)})");
+
+            if (info.IsCompleted)
+            {
+                if (info.AverageSpeedBytesPerSecond.HasValue && info.TotalTime.HasValue)
+                {
+                    sb.Clear();
+                    sb.Append($"{FormatBytes(info.TotalBytes)} transferred in {FormatTimeShort(info.TotalTime.Value)} ");
+                    sb.Append($"({FormatBytes((long)info.AverageSpeedBytesPerSecond.Value)}/s average)");
+                }
+            }
+
+            ProgressText = sb.ToString();
         });
     }
-    
-    
+    private static string FormatTime(TimeSpan time)
+    {
+        if (time.TotalHours >= 1)
+            return $"{(int)time.TotalHours}h {time.Minutes}m {time.Seconds}s remaining";
+        return time.TotalMinutes >= 1 ? $"{time.Minutes}m {time.Seconds}s remaining" : $"{time.Seconds}s remaining";
+    }
+    private static string FormatTimeShort(TimeSpan time)
+    {
+        if (time.TotalHours >= 1)
+            return $"{(int)time.TotalHours}h {time.Minutes}m {time.Seconds}s";
+        return time.TotalMinutes >= 1 ? $"{time.Minutes}m {time.Seconds}s" : $"{time.Seconds}s";
+    }
+
 }

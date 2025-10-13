@@ -31,7 +31,11 @@ public class ProgressInfo
     public TimeSpan? EstimatedRemaining => SpeedBytesPerSecond > 0
         ? TimeSpan.FromSeconds((TotalBytes - BytesTransferred) / SpeedBytesPerSecond)
         : null;
+    public bool IsCompleted { get; set; }
+    public double? AverageSpeedBytesPerSecond { get; set; }
+    public TimeSpan? TotalTime { get; set; }
 }
+
 
 
 
@@ -47,10 +51,13 @@ public abstract class QuicPeer
     
     public bool IsSending { get; set; }
     protected CancellationToken token = CancellationToken.None;
-    private string? saveFolder; // sender
-    private string? filePath; // receiver
+    private string? saveFolder; // receiver
+    private string? filePath; // sender
     private Dictionary<string, string>? metadata; // receiver
     private string? joinedFilePath; // receiver
+
+    public string? JoinedFilePath => joinedFilePath;
+
     private Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
 
     private readonly TaskCompletionSource bothStreamsReady =
@@ -396,8 +403,11 @@ public abstract class QuicPeer
         {
             BytesTransferred = totalBytesSent,
             TotalBytes = fileSize,
-            SpeedBytesPerSecond = 0
+            IsCompleted = true,
+            AverageSpeedBytesPerSecond = totalBytesSent / stopwatch.Elapsed.TotalSeconds,
+            TotalTime = stopwatch.Elapsed
         });
+
         
         var fileHash = await hashTask;
         Console.WriteLine(fileHash);
@@ -475,7 +485,9 @@ public abstract class QuicPeer
         {
             BytesTransferred = totalBytesReceived,
             TotalBytes = fileSize,
-            SpeedBytesPerSecond = 0
+            IsCompleted = true,
+            AverageSpeedBytesPerSecond = totalBytesReceived / stopwatch.Elapsed.TotalSeconds,
+            TotalTime = stopwatch.Elapsed
         });
 
         var actualFileHash = await hashTask;
