@@ -170,22 +170,29 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task SendFile(Window window) 
     {
-        peer.IsSending = true;
-        var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        try
         {
-            Title = "Select file to send",
-            AllowMultiple = false
-        });
+            peer.IsSending = true;
+            var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Select file to send",
+                AllowMultiple = false
+            });
 
-        if (files.Count == 0) return;
-        Console.WriteLine("Selected file");
-        var file = files[0];
-        peer.SetSendPath(file.Path);
-        await peer.StartSending();
-        Console.WriteLine("Started sending");
-        var success = await peer.FileTransferCompleted.Task;
-        Console.WriteLine($"Success: {success}");
-        Console.WriteLine("File transfer completed.");
+            if (files.Count == 0) return;
+            Console.WriteLine("Selected file");
+            var file = files[0];
+            peer.SetSendPath(file.Path.LocalPath);
+            await peer.StartSending();
+            Console.WriteLine("Started sending");
+            var success = await peer.FileTransferCompleted.Task;
+            Console.WriteLine($"Success: {success}");
+            Console.WriteLine("File transfer completed.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex}");
+        }
     }
 
     private void SetPeerHandlers()
@@ -205,7 +212,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 };
                 if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
-                    var result = await dialog.ShowDialog<(bool accepted, Uri? path)>(desktop.MainWindow);
+                    var result = await dialog.ShowDialog<(bool accepted, string? path)>(desktop.MainWindow);
                     peer.FileOfferDecisionTsc.SetResult(result);
                 }
             });

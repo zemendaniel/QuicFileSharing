@@ -12,9 +12,9 @@ public partial class FileOfferDialogViewModel : ViewModelBase
     [ObservableProperty]
     private string message = string.Empty;
 
-    private TaskCompletionSource<(bool accepted, Uri? path)> tcs = new();
+    private TaskCompletionSource<(bool accepted, string? path)> tcs = new();
 
-    public Task<(bool accepted, Uri? path)> ResultTask => tcs.Task;
+    public Task<(bool accepted, string? path)> ResultTask => tcs.Task;
 
     public FileOfferDialogViewModel(string fileName, long fileSize)
     {
@@ -28,11 +28,20 @@ public partial class FileOfferDialogViewModel : ViewModelBase
         {
             Title = "Select folder to save the file"
         });
-        Console.WriteLine("Selected folder");
-        if (folders.Count > 0)
-            tcs.SetResult((true, folders[0].Path));
-        else
+
+        if (folders.Count == 0)
+        {
             tcs.SetResult((false, null));
+            return;
+        }
+        
+        var folderPath = folders[0].Path is { IsAbsoluteUri: true, Scheme: "file" }
+            ? folders[0].Path.LocalPath
+            : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        Console.WriteLine("path in accept:");
+        Console.WriteLine(folderPath);
+        tcs.SetResult((true, folderPath));
+        
     }
 
     [RelayCommand]

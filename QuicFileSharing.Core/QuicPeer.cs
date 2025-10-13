@@ -23,8 +23,8 @@ public abstract class QuicPeer
     
     public bool IsSending { get; set; }
     protected CancellationToken token = CancellationToken.None;
-    private Uri? saveFolder; // sender
-    private Uri? filePath; // receiver
+    private string? saveFolder; // sender
+    private string? filePath; // receiver
     private Dictionary<string, string>? metadata; // receiver
     private string? joinedFilePath; // receiver
     private Channel<string> controlSendQueue = Channel.CreateUnbounded<string>();
@@ -54,14 +54,14 @@ public abstract class QuicPeer
     public event Action? OnDisconnected;
     public event Action<string>? OnFileRejected;
     public event Action<string, long>? OnFileOffered;
-    public TaskCompletionSource<(bool, Uri?)> FileOfferDecisionTsc { get; private set; } = new();
+    public TaskCompletionSource<(bool, string?)> FileOfferDecisionTsc { get; private set; } = new();
 
-    public void SetReceivePath(Uri folder)
-    {
-        saveFolder = folder;
-    }
+    // public void SetReceivePath(string folder)
+    // {
+    //     saveFolder = folder;
+    // }
 
-    public void SetSendPath(Uri path)
+    public void SetSendPath(string path)
     {
         filePath = path;
     }
@@ -223,21 +223,29 @@ public abstract class QuicPeer
                 FileOfferDecisionTsc = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 OnFileOffered?.Invoke(metadata["FileName"], long.Parse(metadata["FileSize"]));
                 var (accepted, path) = await FileOfferDecisionTsc.Task;
-                
+
                 if (!accepted)
                 {
                     await QueueControlMessage("REJECTED:UNWANTED");
                     return;
                 }
                 saveFolder = path;
-                
-                if (saveFolder == null)
-                    throw new InvalidOperationException("Save folder not initialized.");
-                joinedFilePath = Path.Combine(saveFolder.AbsolutePath, metadata["FileName"]);
-                fileHashReady = new TaskCompletionSource<string>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                await QueueControlMessage("READY");
-                _ = Task.Run(ReceiveFileAsync, token);
+                Console.WriteLine("line before ready");
+                try
+                {
+                    if (saveFolder == null)
+                        throw new InvalidOperationException("Save folder not initialized.");
+                    joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
+                    fileHashReady = new TaskCompletionSource<string>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    await QueueControlMessage("READY");
+                    _ = Task.Run(ReceiveFileAsync, token);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.Message);
+                }
+
                 break;
             case var s when line.StartsWith("FILE_SENT:"): // Receiver gets this
                 Console.WriteLine("Sender confirmed file was sent.");
@@ -274,8 +282,8 @@ public abstract class QuicPeer
         if (!IsSending)
             throw new InvalidOperationException("InitSend cannot be called on a receiver.");
 
-        var fileInfo = new FileInfo(filePath.AbsolutePath);
-        var fileName = Path.GetFileName(filePath.AbsolutePath);
+        var fileInfo = new FileInfo(filePath);
+        var fileName = Path.GetFileName(filePath);
         var fileSize = fileInfo.Length;
         var meta = new Dictionary<string, string>
         {
@@ -293,7 +301,10 @@ public abstract class QuicPeer
         if (fileStream == null)
             throw new InvalidOperationException("File stream not initialized.");
         if (isTransferInProgress)
+        {
+            Console.WriteLine("File transfer already in progress in sendfileasync");
             return;
+        }
         
         isTransferInProgress = true;
 
@@ -306,7 +317,7 @@ public abstract class QuicPeer
             .Unwrap();
 
         await using var inputFile = new FileStream(
-            path: filePath.AbsolutePath,
+            path: filePath,
             mode: FileMode.Open,
             access: FileAccess.Read,
             share: FileShare.Read,
