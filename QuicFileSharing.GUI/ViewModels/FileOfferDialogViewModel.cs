@@ -1,4 +1,6 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System.Runtime.InteropServices;
+using System.IO;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Controls;
 using System;
@@ -35,9 +37,7 @@ public partial class FileOfferDialogViewModel : ViewModelBase
             return;
         }
         
-        var folderPath = folders[0].Path is { IsAbsoluteUri: true, Scheme: "file" }
-            ? folders[0].Path.LocalPath
-            : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        var folderPath = ResolveFolderPath(folders[0]);
         Console.WriteLine("path in accept:");
         Console.WriteLine(folderPath);
         tcs.SetResult((true, folderPath));
@@ -49,4 +49,22 @@ public partial class FileOfferDialogViewModel : ViewModelBase
     {
         tcs.SetResult((false, null));
     }
+    
+
+    private string ResolveFolderPath(IStorageFolder folder)
+    {
+        if (folder.Path is not { IsAbsoluteUri: true, Scheme: "file" })
+            return Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        
+        var path = Uri.UnescapeDataString(folder.Path.LocalPath);
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return path;
+        
+        path = path.Replace('/', '\\');
+        if (folder.Path.Host != "")
+            path = $@"\\{folder.Path.Host}{path[1..]}";
+
+        return path;
+    }
+
 }

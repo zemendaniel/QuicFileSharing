@@ -170,29 +170,22 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task SendFile(Window window) 
     {
-        try
+        peer.IsSending = true;
+        var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            peer.IsSending = true;
-            var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Select file to send",
-                AllowMultiple = false
-            });
+            Title = "Select file to send",
+            AllowMultiple = false
+        });
 
-            if (files.Count == 0) return;
-            Console.WriteLine("Selected file");
-            var file = files[0];
-            peer.SetSendPath(file.Path.LocalPath);
-            await peer.StartSending();
-            Console.WriteLine("Started sending");
-            var success = await peer.FileTransferCompleted.Task;
-            Console.WriteLine($"Success: {success}");
-            Console.WriteLine("File transfer completed.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error: {ex}");
-        }
+        if (files.Count == 0) return;
+        Console.WriteLine("Selected file");
+        var file = files[0];
+        peer.SetSendPath(file.Path.LocalPath);
+        await peer.StartSending();
+        Console.WriteLine("Started sending");
+        var success = await peer.FileTransferCompleted.Task;
+        Console.WriteLine($"Success: {success}");
+        Console.WriteLine("File transfer completed.");
     }
 
     private void SetPeerHandlers()
