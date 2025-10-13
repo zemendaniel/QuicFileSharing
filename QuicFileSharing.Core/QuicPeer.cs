@@ -66,6 +66,7 @@ public abstract class QuicPeer
     public event Action? OnDisconnected;
     public event Action<string>? OnFileRejected;
     public event Action<string, long>? OnFileOffered;
+    public IProgress<double>? FileTransferProgress { get; set; }
     public TaskCompletionSource<(bool, string?)> FileOfferDecisionTsc { get; private set; } = new();
 
     // public void SetReceivePath(string folder)
@@ -402,13 +403,10 @@ public abstract class QuicPeer
                 ArrayPool<byte>.Shared.Return(buffer);
                 break;
             }
-
             await outputFile.WriteAsync(buffer.AsMemory(0, bytesRead), token);
-
             await hashQueue.Writer.WriteAsync(new ArraySegment<byte>(buffer, 0, bytesRead), token);
-
             totalBytesReceived += bytesRead;
-            Console.WriteLine($"Received chunk: {bytesRead} bytes (total {totalBytesReceived}/{fileSize})");
+            FileTransferProgress?.Report((double)totalBytesReceived / fileSize);
         }
 
         hashQueue.Writer.Complete();

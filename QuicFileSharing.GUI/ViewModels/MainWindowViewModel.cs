@@ -37,6 +37,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private string lobbyText = string.Empty;
     [ObservableProperty]
     private string roomText = string.Empty;
+    [ObservableProperty]
+    private double progress;
     
     private QuicPeer peer;
     // private CancellationTokenSource? transferCts;
@@ -176,6 +178,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         peer.IsSending = true;
         RoomText = "";
+        TrackProgress();
         var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Select file to send",
@@ -222,6 +225,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     var result = await dialog.ShowDialog<(bool accepted, string? path)>(desktop.MainWindow!);
                     peer.FileOfferDecisionTsc.SetResult(result);
+                    if (result.accepted)
+                        TrackProgress();
                 }
             });
         };
@@ -271,4 +276,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private void TrackProgress()
+    {
+        peer.FileTransferProgress = new Progress<double>(progress =>
+        {
+            Progress = progress;
+        });
+    }
 }
