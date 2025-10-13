@@ -20,11 +20,7 @@ public abstract class QuicPeer
     protected QuicStream? controlStream;
     protected QuicStream? fileStream;
     protected CancellationTokenSource? cts;
-
-    // protected bool isRunning = false;
-    // protected bool isReceivingFile = false;
-    // protected bool isSendingFile = false;
-
+    
     public bool IsSending { get; set; }
     protected CancellationToken token = CancellationToken.None;
     private Uri? saveFolder; // sender
@@ -68,7 +64,6 @@ public abstract class QuicPeer
     public void SetSendPath(Uri path)
     {
         filePath = path;
-        // IsSending = true;
     }
 
     protected void SetControlStream()
@@ -218,15 +213,16 @@ public abstract class QuicPeer
                     await QueueControlMessage("REJECTED:ALREADY_SENDING");
                     return;
                 }
+                
+                FileTransferCompleted = new();
+                
                 var json = line["METADATA:".Length..];
                 metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)!;
                 Console.WriteLine($"Received metadata: {string.Join(", ", metadata)}");
                 
-                // var (accepted, path) = await OnFileOffered(metadata["FileName"], long.Parse(metadata["FileSize"]));
                 FileOfferDecisionTsc = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 OnFileOffered?.Invoke(metadata["FileName"], long.Parse(metadata["FileSize"]));
                 var (accepted, path) = await FileOfferDecisionTsc.Task;
-                Console.WriteLine("got result2");
                 
                 if (!accepted)
                 {
@@ -292,15 +288,14 @@ public abstract class QuicPeer
 
     private async Task SendFileAsync()
     {
-        if (isTransferInProgress)
-            return;
-        
-        isTransferInProgress = true;
-        
         if (filePath == null)
             throw new InvalidOperationException("InitSend must be called first.");
         if (fileStream == null)
             throw new InvalidOperationException("File stream not initialized.");
+        if (isTransferInProgress)
+            return;
+        
+        isTransferInProgress = true;
 
         var hashQueue = Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(128)
         {
@@ -350,7 +345,7 @@ public abstract class QuicPeer
 
         if (joinedFilePath == null)
             throw new InvalidOperationException("Joined file path not initialized.");
-        
+
         long totalBytesReceived = 0;
         var fileSize = long.Parse(metadata["FileSize"]);
 

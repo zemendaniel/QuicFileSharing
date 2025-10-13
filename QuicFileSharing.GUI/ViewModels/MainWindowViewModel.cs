@@ -178,10 +178,13 @@ public partial class MainWindowViewModel : ViewModelBase
         });
 
         if (files.Count == 0) return;
+        Console.WriteLine("Selected file");
         var file = files[0];
         peer.SetSendPath(file.Path);
         await peer.StartSending();
+        Console.WriteLine("Started sending");
         var success = await peer.FileTransferCompleted.Task;
+        Console.WriteLine($"Success: {success}");
         Console.WriteLine("File transfer completed.");
     }
 
@@ -196,17 +199,13 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await Dispatcher.UIThread.InvokeAsync( async () =>
             {
-                Console.WriteLine("file offered");
                 var dialog = new FileOfferDialog
                 {
                     DataContext = new FileOfferDialogViewModel(fileName, fileSize)
                 };
                 if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
-                    Console.WriteLine("showing dialog");
-                    
                     var result = await dialog.ShowDialog<(bool accepted, Uri? path)>(desktop.MainWindow);
-                    Console.WriteLine("got result");
                     peer.FileOfferDecisionTsc.SetResult(result);
                 }
             });
