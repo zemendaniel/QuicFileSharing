@@ -17,6 +17,7 @@ using QuicFileSharing.GUI.Models;
 using Avalonia.Styling;
 using QuicFileSharing.GUI.Views;
 
+
 namespace QuicFileSharing.GUI.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
@@ -34,8 +35,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private string lobbyText = string.Empty;
     
     private QuicPeer peer;
-    // private readonly SignalingUtils signalingUtils = new();
-    // private CancellationTokenSource quicCts = new();
+   
     
     [RelayCommand]
     private async Task JoinRoom()
@@ -120,7 +120,6 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         peer = new Server();
         SetPeerHandlers();
-        // peer.InitReceive(new Uri(@"D:\"));
 
         LobbyText = "Connecting to coordination server...";
         var server = (peer as Server)!;
@@ -205,12 +204,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
                     Console.WriteLine("showing dialog");
-                    await dialog.ShowDialog(desktop.MainWindow);
+                    
+                    var result = await dialog.ShowDialog<(bool accepted, Uri? path)>(desktop.MainWindow);
+                    Console.WriteLine("got result");
+                    peer.FileOfferDecisionTsc.SetResult(result);
                 }
-                var vm = (FileOfferDialogViewModel)dialog.DataContext;
-                var (accepted, path) = await vm.ResultTask;
-                Console.WriteLine("got result");
-                peer.FileOfferDecisionTsc.SetResult((accepted, path));
             });
         };
     }

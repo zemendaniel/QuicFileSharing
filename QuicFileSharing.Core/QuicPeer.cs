@@ -162,12 +162,11 @@ public abstract class QuicPeer
 
     private void ResetAfterFileTransferCompleted()
     {
+        Console.WriteLine("Resetting after file transfer completed.");
         IsSending = false;
         metadata = null;
         joinedFilePath = null;
         fileHashReady = null;
-        // FileTransferCompleted = new();
-        // FileOfferDecisionTsc = new();
         filePath = null;
         saveFolder = null;
         isTransferInProgress = false;
@@ -175,6 +174,7 @@ public abstract class QuicPeer
     
     private async Task HandleControlMessage(string? line)
     {
+        Console.WriteLine(line);
         switch (line)
         {
             case null:
@@ -187,7 +187,6 @@ public abstract class QuicPeer
                 _ = Task.Run(SendFileAsync, token);
                 break;
             case var s when line.StartsWith("RECEIVED_FILE:"): // Sender gets this, marks the end of file transfer
-                ResetAfterFileTransferCompleted();
                 var status = line["RECEIVED_FILE:".Length..];
                 switch (status)
                 {
@@ -206,7 +205,7 @@ public abstract class QuicPeer
                 ResetAfterFileTransferCompleted();
                 break;
             
-            case var s when line.StartsWith("METADATA:"):   // Receiver gets this, marks start of file transfer
+            case var s when line.StartsWith("METADATA:"):   // Receiver gets this, marks the start of file transfer
                 if (isTransferInProgress)
                 {
                     await QueueControlMessage("REJECTED:ALREADY_RECEIVING");
@@ -216,7 +215,6 @@ public abstract class QuicPeer
 
                 if (IsSending)
                 {
-                    Console.WriteLine("file rejected");
                     await QueueControlMessage("REJECTED:ALREADY_SENDING");
                     return;
                 }
@@ -232,7 +230,6 @@ public abstract class QuicPeer
                 
                 if (!accepted)
                 {
-                    Console.WriteLine("File rejected.");
                     await QueueControlMessage("REJECTED:UNWANTED");
                     return;
                 }
@@ -353,7 +350,7 @@ public abstract class QuicPeer
 
         if (joinedFilePath == null)
             throw new InvalidOperationException("Joined file path not initialized.");
-
+        
         long totalBytesReceived = 0;
         var fileSize = long.Parse(metadata["FileSize"]);
 
