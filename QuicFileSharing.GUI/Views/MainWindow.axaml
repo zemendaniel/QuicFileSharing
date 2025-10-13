@@ -48,6 +48,7 @@
             <SelectableTextBlock Text="You are in a room"></SelectableTextBlock>
             <TextBlock Text="{Binding RoomCode}"></TextBlock>
             <Button Content="Send File" Command="{Binding SendFileCommand}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <TextBlock Text="{Binding RoomText}"></TextBlock>
         </StackPanel>
     </Grid>
     

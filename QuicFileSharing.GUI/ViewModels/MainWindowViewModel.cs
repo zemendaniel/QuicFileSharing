@@ -1,5 +1,7 @@
 ﻿using System;
+using System.IO;
 using System.Net.Mime;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,8 +35,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private string statusMessage = string.Empty;
     [ObservableProperty]
     private string lobbyText = string.Empty;
+    [ObservableProperty]
+    private string roomText = string.Empty;
     
     private QuicPeer peer;
+    // private CancellationTokenSource? transferCts;
    
     
     [RelayCommand]
@@ -57,7 +62,7 @@ public partial class MainWindowViewModel : ViewModelBase
             State = AppState.Lobby;
             LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
         };
-        LobbyText = "Connecting to coordination server...";
+        LobbyText = "Connecting to peer...";
         try
         {
             var (success, errorMessage) =
@@ -81,7 +86,6 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             var answer = await signaling.AnswerTsc.Task;
-            LobbyText = "Connecting to peer...";
             signalingUtils.ProcessAnswer(answer);
             if (signalingUtils.ChosenPeerIp == null)
             {
@@ -171,21 +175,32 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task SendFile(Window window) 
     {
         peer.IsSending = true;
+        RoomText = "";
         var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Select file to send",
             AllowMultiple = false
         });
 
-        if (files.Count == 0) return;
-        Console.WriteLine("Selected file");
+        if (files.Count == 0)
+        {
+            peer.IsSending = false;
+            RoomText = "No file was selected.";
+            return;
+        }
         var file = files[0];
-        peer.SetSendPath(file.Path.LocalPath);
+        var path = ResolveFilePath(file);
+        if (path is null)
+        {
+            peer.IsSending = false;
+            RoomText = "Error: Could not determine file path.";
+            return;       
+        }
+        peer.SetSendPath(path);
         await peer.StartSending();
-        Console.WriteLine("Started sending");
-        var success = await peer.FileTransferCompleted.Task;
-        Console.WriteLine($"Success: {success}");
-        Console.WriteLine("File transfer completed.");
+        var status = await peer.FileTransferCompleted!.Task;
+        peer.IsSending = false;
+        HandleFileTransferCompleted(status);
     }
 
     private void SetPeerHandlers()
@@ -205,10 +220,55 @@ public partial class MainWindowViewModel : ViewModelBase
                 };
                 if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
-                    var result = await dialog.ShowDialog<(bool accepted, string? path)>(desktop.MainWindow);
+                    var result = await dialog.ShowDialog<(bool accepted, string? path)>(desktop.MainWindow!);
                     peer.FileOfferDecisionTsc.SetResult(result);
                 }
             });
         };
+        peer.OnFileRejected += msg =>
+        {
+            RoomText = msg;
+        };
     }
+    private static string? ResolveFilePath(IStorageFile file)
+    {
+        if (file.Path is not { IsAbsoluteUri: true, Scheme: "file" })
+            return null;
+        
+        var path = Uri.UnescapeDataString(file.Path.LocalPath);
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return path;
+        path = path.Replace('/', '\\');
+
+        if (!string.IsNullOrEmpty(file.Path.Host))
+            path = $@"\\{file.Path.Host}{path[1..]}";
+
+        return path;
+    }
+
+    private void HandleFileTransferCompleted(FileTransferStatus status)
+    {
+        switch (status)
+        {
+            case FileTransferStatus.HashFailed:
+                RoomText = "Error: File integrity check failed.";
+                break;
+            case FileTransferStatus.RejectedAlreadySending:
+                RoomText = "File rejected: Your peer is already sending or preparing to send a file.";
+                break;
+            case FileTransferStatus.RejectedAlreadyReceiving:
+                RoomText = "File rejected: Your peer is already receiving or preparing to receive a file.";
+                break;
+            case FileTransferStatus.RejectedUnwanted:
+                RoomText = "File rejected: Your peer is not interested in receiving this file.";
+                break;
+            case FileTransferStatus.Cancelled:
+                RoomText = "File transfer was cancelled.";
+                break;
+            case FileTransferStatus.Completed:
+                RoomText = "File transfer completed successfully.";
+                break;
+        }
+    }
+
 }

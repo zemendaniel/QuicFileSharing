@@ -11,6 +11,18 @@ namespace QuicFileSharing.Core;
 
 // public delegate Task<(bool, Uri?)> OnFileOffered(string filePath, long fileSize);
 
+public enum FileTransferStatus
+{
+    Cancelled,
+    Completed,
+    HashFailed,
+    RejectedAlreadySending,
+    RejectedAlreadyReceiving,
+    RejectedUnwanted,
+    RejectedByMe
+}
+
+
 public abstract class QuicPeer
 {
     protected readonly X509Certificate2 cert = CreateSelfSignedCertificate();
@@ -32,7 +44,7 @@ public abstract class QuicPeer
     private readonly TaskCompletionSource bothStreamsReady =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TaskCompletionSource<bool>? FileTransferCompleted { get; private set; }
+    public TaskCompletionSource<FileTransferStatus>? FileTransferCompleted { get; private set; }
 
     private TaskCompletionSource<string>? fileHashReady;
     private bool controlReady;
@@ -167,7 +179,8 @@ public abstract class QuicPeer
         isTransferInProgress = false;
     }
     
-    private async Task HandleControlMessage(string? line)
+    private async Task 
+        HandleControlMessage(string? line)
     {
         Console.WriteLine(line);
         switch (line)
@@ -181,17 +194,17 @@ public abstract class QuicPeer
                 Console.WriteLine("Receiver is ready, starting file send...");
                 _ = Task.Run(SendFileAsync, token);
                 break;
-            case var s when line.StartsWith("RECEIVED_FILE:"): // Sender gets this, marks the end of file transfer
+            case var _ when line.StartsWith("RECEIVED_FILE:"): // Sender gets this, marks the end of file transfer
                 var status = line["RECEIVED_FILE:".Length..];
                 switch (status)
                 {
                     case "OK":
                         Console.WriteLine("Receiver confirmed file was received successfully.");
-                        FileTransferCompleted?.SetResult(true);
+                        FileTransferCompleted?.SetResult(FileTransferStatus.Completed);
                         break;
                     case "FAILED":
                         Console.WriteLine("Receiver did not receive the file successfully (integrity check failed).");
-                        FileTransferCompleted?.SetResult(false);
+                        FileTransferCompleted?.SetResult(FileTransferStatus.HashFailed);
                         break;
                     default:
                         Console.WriteLine($"Unknown status: {status}");
@@ -200,7 +213,7 @@ public abstract class QuicPeer
                 ResetAfterFileTransferCompleted();
                 break;
             
-            case var s when line.StartsWith("METADATA:"):   // Receiver gets this, marks the start of file transfer
+            case var _ when line.StartsWith("METADATA:"):   // Receiver gets this, marks the start of file transfer
                 if (isTransferInProgress)
                 {
                     await QueueControlMessage("REJECTED:ALREADY_RECEIVING");
@@ -227,27 +240,22 @@ public abstract class QuicPeer
                 if (!accepted)
                 {
                     await QueueControlMessage("REJECTED:UNWANTED");
+                    FileTransferCompleted?.SetResult(FileTransferStatus.RejectedByMe);
+                    ResetAfterFileTransferCompleted();
                     return;
                 }
                 saveFolder = path;
-                Console.WriteLine("line before ready");
-                try
-                {
-                    if (saveFolder == null)
-                        throw new InvalidOperationException("Save folder not initialized.");
-                    joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
-                    fileHashReady = new TaskCompletionSource<string>(
-                        TaskCreationOptions.RunContinuationsAsynchronously);
-                    await QueueControlMessage("READY");
-                    _ = Task.Run(ReceiveFileAsync, token);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e.Message);
-                }
-
+               
+                if (saveFolder == null)
+                    throw new InvalidOperationException("Save folder not initialized.");
+                joinedFilePath = Path.Combine(saveFolder, metadata["FileName"]);
+                fileHashReady = new TaskCompletionSource<string>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                await QueueControlMessage("READY");
+                _ = Task.Run(ReceiveFileAsync, token);
+                
                 break;
-            case var s when line.StartsWith("FILE_SENT:"): // Receiver gets this
+            case var _ when line.StartsWith("FILE_SENT:"): // Receiver gets this
                 Console.WriteLine("Sender confirmed file was sent.");
                 if (fileHashReady == null)
                     throw new InvalidOperationException("File hash ready not initialized.");
@@ -255,17 +263,22 @@ public abstract class QuicPeer
                 Console.WriteLine($"Received file hash: {hash}");
                 fileHashReady.SetResult(hash);
                 break;
-            case var s when s.StartsWith("REJECTED:"): 
-                var reason = s["REJECTED:".Length..];
+            case var _ when line.StartsWith("REJECTED:"): 
+                IsSending = false;
+                var reason = line["REJECTED:".Length..];
                 switch (reason)
                 {
                     case "ALREADY_SENDING":
-                        OnFileRejected?.Invoke("File rejected: Peer is already sending or preparing to send a file.");
+                        FileTransferCompleted?.SetResult(FileTransferStatus.RejectedAlreadySending);
                         break;
                     case "UNWANTED":
-                        OnFileRejected?.Invoke("File rejected: Peer does not want this file.");
+                        FileTransferCompleted?.SetResult(FileTransferStatus.RejectedUnwanted);
+                        break;
+                    case "ALREADY_RECEIVING":
+                        FileTransferCompleted?.SetResult(FileTransferStatus.RejectedAlreadyReceiving);
                         break;
                 }
+                ResetAfterFileTransferCompleted();
                 break;
             default:
                 Console.WriteLine($"Unknown control message: {line}");
@@ -408,17 +421,30 @@ public abstract class QuicPeer
 
         var expectedFileHash = await fileHashReady!.Task;
         var success = actualFileHash == expectedFileHash;
-        if (!success)
+        try
         {
-            Console.WriteLine("[ERROR] File integrity check failed.");
-            await QueueControlMessage("RECEIVED_FILE:FAILED");
+            Console.WriteLine("task completed:");
+            Console.WriteLine(FileTransferCompleted.Task.IsCompleted);
+            if (!success)
+            {
+                Console.WriteLine("[ERROR] File integrity check failed.");
+                await QueueControlMessage("RECEIVED_FILE:FAILED");
+                FileTransferCompleted!.SetResult(FileTransferStatus.HashFailed);
+            }
+            else
+            {
+                Console.WriteLine("[SUCCESS] File received successfully.");
+                await QueueControlMessage("RECEIVED_FILE:OK");
+                FileTransferCompleted!.SetResult(FileTransferStatus.Completed);
+                Console.WriteLine("asd");
+            }
         }
-        else
+        catch (Exception e)
         {
-            Console.WriteLine("[SUCCESS] File received successfully.");
-            await QueueControlMessage("RECEIVED_FILE:OK");
+            Console.WriteLine(e.Message);
         }
-        FileTransferCompleted.SetResult(success);
+
+
         Console.WriteLine($"File was saved as {joinedFilePath}, size = {totalBytesReceived} bytes");
         Console.WriteLine(
             $"Average speed was {totalBytesReceived / (1024 * 1024) / stopwatch.Elapsed.TotalSeconds:F2} MB/s, time {stopwatch.Elapsed}");

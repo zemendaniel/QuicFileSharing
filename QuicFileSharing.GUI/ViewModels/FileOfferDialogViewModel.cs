@@ -50,8 +50,7 @@ public partial class FileOfferDialogViewModel : ViewModelBase
         tcs.SetResult((false, null));
     }
     
-
-    private string ResolveFolderPath(IStorageFolder folder)
+    private static string ResolveFolderPath(IStorageFolder folder)
     {
         if (folder.Path is not { IsAbsoluteUri: true, Scheme: "file" })
             return Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
