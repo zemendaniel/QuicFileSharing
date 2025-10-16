@@ -46,6 +46,13 @@ public class SignalingUtils
     public bool IsIpv6 { get; private set; } 
     public string? ClientThumbprint { get; private set; }
     public string? ServerThumbprint { get; private set; }
+    private StunClient stunClient;
+    
+    public SignalingUtils(string stunServerAddress = "stun.l.google.com", int stunServerPort = 19302) 
+    {
+        stunClient = new StunClient(stunServerAddress, stunServerPort);
+    }
+    
     public async Task<string> ConstructOfferAsync(string thumbprint)
     {
         var ipv4Task = GetPublicIpv4Async();

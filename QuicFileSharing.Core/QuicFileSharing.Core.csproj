@@ -7,4 +7,8 @@
         <RootNamespace>QuicFileSharing.Core</RootNamespace>
     </PropertyGroup>
 
+    <ItemGroup>
+      <PackageReference Include="Stun.Net" Version="9.0.1" />
+    </ItemGroup>
+
 </Project>
