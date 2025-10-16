@@ -90,7 +90,7 @@ public class SignalingUtils
         if (ipv4Endpoint is null && ipv6Endpoint is null)
             throw new Exception("Could not determine public IP address. Make sure you are connected to the internet.");
         
-        if (peerIpv6 is not null && ipv6Endpoint is not null)
+        if (peerIpv6 is not null && ipv6Endpoint is not null && false) // todo
         {
             ChosenPeerIp = peerIpv6;
             ChosenOwnIp = ipv6Endpoint.Address;
