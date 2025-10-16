@@ -9,7 +9,8 @@ public class Offer
 {
     public string? Ipv4 { get; init; }
     public string? Ipv6 { get; init; }
-    public required int Port { get; init; }
+    public required int? PortV4 { get; init; }
+    public required int? PortV6 { get; init; }
     public required string ClientThumbprint { get; init; }
 }
 
@@ -55,15 +56,21 @@ public class SignalingUtils
     
     public async Task<string> ConstructOfferAsync(string thumbprint)
     {
-        var ipv4Task = GetPublicIpv4Async();
-        var ipv6Task = GetPublicIpv6Async();
-        await Task.WhenAll(ipv4Task, ipv6Task);
-        ChosenOwnPort = GetFreeUdpPortAsync();
+        //var ipv4Task = GetPublicIpv4Async();
+        //var ipv6Task = GetPublicIpv6Async();
+        //await Task.WhenAll(ipv4Task, ipv6Task);
+        //ChosenOwnPort = GetFreeUdpPortAsync();
+
+        var (ipv4Endpoint, ipv6Endpoint) = await RunStun();
+        if (ipv4Endpoint is null && ipv6Endpoint is null)
+            throw new Exception("Could not determine public IP address. Make sure you are connected to the internet.");
+        
         var offer = new Offer
         {
-            Ipv4 = ipv4Task.Result?.ToString(),
-            Ipv6 = ipv6Task.Result?.ToString(),
-            Port = ChosenOwnPort,
+            Ipv4 = ipv4Endpoint?.Address.ToString(),
+            Ipv6 = ipv6Endpoint?.Address.ToString(),
+            PortV4 = ipv4Endpoint?.Port,
+            PortV6 = ipv6Endpoint?.Port,
             ClientThumbprint = thumbprint
         };
         var json = JsonSerializer.Serialize(offer);
@@ -76,31 +83,31 @@ public class SignalingUtils
         
         var peerIpv6 = string.IsNullOrWhiteSpace(offer.Ipv6) ? null : IPAddress.Parse(offer.Ipv6);
         var peerIpv4 = string.IsNullOrWhiteSpace(offer.Ipv4) ? null : IPAddress.Parse(offer.Ipv4);
-
-        var ipv4Task = GetPublicIpv4Async();
-        var ipv6Task = GetPublicIpv6Async();
-        await Task.WhenAll(ipv4Task, ipv6Task);
-        var ipv4 = ipv4Task.Result;
-        var ipv6 = ipv6Task.Result;
+        var peerPortV4 = offer.PortV4;
+        var peerPortV6 = offer.PortV6;
         
-        if (peerIpv6 is not null && ipv6 is not null)
+        var (ipv4Endpoint, ipv6Endpoint) = await RunStun();
+        if (ipv4Endpoint is null && ipv6Endpoint is null)
+            throw new Exception("Could not determine public IP address. Make sure you are connected to the internet.");
+        
+        if (peerIpv6 is not null && ipv6Endpoint is not null)
         {
             ChosenPeerIp = peerIpv6;
-            ChosenOwnIp = ipv6;
+            ChosenOwnIp = ipv6Endpoint.Address;
+            ChosenOwnPort =  ipv6Endpoint.Port;
             IsIpv6 = true;
             Console.WriteLine("Using IPv6");
         }
-        else if (peerIpv4 is not null && ipv4 is not null)
+        else if (peerIpv4 is not null && ipv4Endpoint is not null)
         {
             ChosenPeerIp = peerIpv4;
-            ChosenOwnIp = ipv4;
+            ChosenOwnIp = ipv4Endpoint.Address;
+            ChosenOwnPort = ipv4Endpoint.Port;
             Console.WriteLine("Using IPv4");
         }
         else
             throw new InvalidOperationException("No compatible IP address found.");
         
-        ChosenOwnPort = GetFreeUdpPortAsync();
-        ChosenPeerPort = offer.Port;
         ClientThumbprint = offer.ClientThumbprint;
         
         var answer = new Answer
@@ -148,21 +155,9 @@ public class SignalingUtils
         }
         return null;
     }
-    private static async Task<IPAddress?> GetPublicIpv4Async()
+    private async Task<(IPEndPoint?, IPEndPoint?)> RunStun()
     {
-        try
-        {
-            using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(5);
-            var response = await httpClient.GetStringAsync("https://api.ipify.org");
-            if (IPAddress.TryParse(response.Trim(), out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
-                return ip;
-        }
-        catch
-        {
-            // Ignore
-        }
-        return null;
+        return await stunClient.RunAsync();
     }
 
     private static async Task PunchUdpHoleAsync(IPAddress peerIp, int peerPort, int localPort)
