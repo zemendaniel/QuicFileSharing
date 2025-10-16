@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
+using System.Net;
 using System.Net.Mime;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -79,9 +81,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 LobbyText = $"Could not connect to coordination server: {errorMessage}";
                 return;
             }
-
+            
+            UdpClient? udpV4 = null;
+            UdpClient? udpV6 = null;
             var offer = await Task.Run(() => signalingUtils.ConstructOfferAsync(client.Thumbprint), cts.Token);
-
+            if (signalingUtils.PortV4 is not null)
+            {
+                udpV4 = new UdpClient(new IPEndPoint(IPAddress.Any, signalingUtils.PortV4.Value));
+                Console.WriteLine("started udpv4");
+            }
+            if (signalingUtils.PortV6 is not null)
+            {
+                udpV4 = new UdpClient(new IPEndPoint(IPAddress.IPv6Any, signalingUtils.PortV6.Value));
+                Console.WriteLine("started udpv6");
+            }
+            
             try
             {
                 await Task.Run(() => signaling.SendAsync(offer, "offer"), cts.Token);
@@ -98,7 +112,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 LobbyText = "Could not connect to peer: Could not agree on IP generation.";
                 return;
             }
-
+            
+            udpV6?.Close();
+            udpV4?.Close();
+            
             try
             {
                 await Task.Run(() => client.StartAsync(
@@ -158,6 +175,7 @@ public partial class MainWindowViewModel : ViewModelBase
         RoomCode = info.id;
 
         var offer = await signaling.OfferTcs.Task;
+        
         var answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint));
         await Task.Run(() => server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
             signalingUtils.ClientThumbprint!));

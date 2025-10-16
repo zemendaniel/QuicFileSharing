@@ -14,6 +14,8 @@ public class Server: QuicPeer
     
     public async Task StartAsync(bool isIpv6, int localPort, string expectedThumbprint)
     {
+        Console.WriteLine($"Server starting on {localPort}, ipv6: {isIpv6}");
+
         var listenEndpoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort);
         var serverConnectionOptions = new QuicServerConnectionOptions
         {

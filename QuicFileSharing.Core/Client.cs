@@ -11,6 +11,7 @@ public class Client : QuicPeer
 
     public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, string expectedThumbprint)
     {
+        Console.WriteLine($"Client connecting to {remoteAddress}:{remotePort} from {localPort}");
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
             RemoteEndPoint = new IPEndPoint(remoteAddress, remotePort),

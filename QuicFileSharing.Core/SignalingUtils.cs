@@ -17,7 +17,8 @@ public class Offer
 public class Answer
 {
     public required string Ip { get; init; }
-    public required int Port { get; init; }
+    public required int ServerPort { get; init; }
+    public required int ClientPort { get; init; }
     public required string ServerThumbprint { get; init; }
 }
 
@@ -48,6 +49,8 @@ public class SignalingUtils
     public string? ClientThumbprint { get; private set; }
     public string? ServerThumbprint { get; private set; }
     private StunClient stunClient;
+    public int? PortV4 { get; private set; }
+    public int? PortV6 { get; private set; }
     
     public SignalingUtils(string stunServerAddress = "stun.l.google.com", int stunServerPort = 19302) 
     {
@@ -64,7 +67,8 @@ public class SignalingUtils
         var (ipv4Endpoint, ipv6Endpoint) = await RunStun();
         if (ipv4Endpoint is null && ipv6Endpoint is null)
             throw new Exception("Could not determine public IP address. Make sure you are connected to the internet.");
-        
+        PortV4 = ipv4Endpoint?.Port;
+        PortV6 = ipv6Endpoint?.Port;
         var offer = new Offer
         {
             Ipv4 = ipv4Endpoint?.Address.ToString(),
@@ -95,6 +99,7 @@ public class SignalingUtils
             ChosenPeerIp = peerIpv6;
             ChosenOwnIp = ipv6Endpoint.Address;
             ChosenOwnPort =  ipv6Endpoint.Port;
+            ChosenPeerPort = peerPortV6 ?? throw new InvalidOperationException("No port found in offer.");
             IsIpv6 = true;
             Console.WriteLine("Using IPv6");
         }
@@ -103,6 +108,8 @@ public class SignalingUtils
             ChosenPeerIp = peerIpv4;
             ChosenOwnIp = ipv4Endpoint.Address;
             ChosenOwnPort = ipv4Endpoint.Port;
+            ChosenPeerPort = peerPortV4 ?? throw new InvalidOperationException("No port found in offer.");
+            IsIpv6 = false;
             Console.WriteLine("Using IPv4");
         }
         else
@@ -113,7 +120,8 @@ public class SignalingUtils
         var answer = new Answer
         {
             Ip = ChosenOwnIp.ToString(),
-            Port = ChosenOwnPort,
+            ServerPort = ChosenOwnPort,
+            ClientPort = ChosenPeerPort,
             ServerThumbprint = thumbprint,
         };
         var json = JsonSerializer.Serialize(answer);
@@ -128,7 +136,8 @@ public class SignalingUtils
         var answer = JsonSerializer.Deserialize<Answer>(answerJson) ?? throw new ArgumentException("Invalid answer JSON");
 
         ChosenPeerIp = IPAddress.Parse(answer.Ip);
-        ChosenPeerPort = answer.Port;
+        ChosenPeerPort = answer.ServerPort;
+        ChosenOwnPort = answer.ClientPort;
         ServerThumbprint = answer.ServerThumbprint;
         IsIpv6 = ChosenPeerIp.AddressFamily == AddressFamily.InterNetworkV6;
         Console.WriteLine($"Chosen peer IP: {ChosenPeerIp}");
@@ -164,11 +173,12 @@ public class SignalingUtils
     {
         var localEndpoint = peerIp.AddressFamily == AddressFamily.InterNetworkV6 ? new IPEndPoint(IPAddress.IPv6Any, localPort) : new IPEndPoint(IPAddress.Any, localPort);
         var remoteEndpoint = new IPEndPoint(peerIp, peerPort);
+        Console.WriteLine("Sending from " + localEndpoint + " to " + remoteEndpoint);
         using var udp = new UdpClient(localEndpoint);
         
         List<Task> tasks = [];
         for (var i = 0; i < 5; i++)
-            tasks.Add(udp.SendAsync([], 0, remoteEndpoint));
+            tasks.Add(udp.SendAsync([1], 1, remoteEndpoint));
         
         await Task.WhenAll(tasks);
     }

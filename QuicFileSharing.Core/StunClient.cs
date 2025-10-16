@@ -56,6 +56,7 @@ class StunClient(string stunServerAddress, int stunServerPort)
             try
             {
                 await client.QueryAsync();
+                client.Dispose();
                 if (client.State.PublicEndPoint != null)
                     return client.State.PublicEndPoint;
             }
