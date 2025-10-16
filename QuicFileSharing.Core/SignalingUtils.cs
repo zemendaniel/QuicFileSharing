@@ -9,7 +9,7 @@ public class Offer
 {
     public string? Ipv4 { get; init; }
     public string? Ipv6 { get; init; }
-    public required int Port { get; init; }
+    public int? Port { get; init; }
     public required string ClientThumbprint { get; init; }
 }
 
@@ -42,39 +42,55 @@ public class SignalingUtils
     public IPAddress? ChosenPeerIp { get; private set; }
     private IPAddress? ChosenOwnIp { get; set; }
     public int ChosenPeerPort { get; private set; }
-    public int ChosenOwnPort { get; private set; }
+    public int? ChosenOwnPort { get; private set; }  
     public bool IsIpv6 { get; private set; } 
     public string? ClientThumbprint { get; private set; }
     public string? ServerThumbprint { get; private set; }
+    // private bool forceIpv4;
+    private UdpClient? udpClient;
+    
+    
     public async Task<string> ConstructOfferAsync(string thumbprint)
     {
         var ipv4Task = GetPublicIpv4Async();
         var ipv6Task = GetPublicIpv6Async();
+        
         await Task.WhenAll(ipv4Task, ipv6Task);
-        ChosenOwnPort = GetFreeUdpPortAsync();
+        
+        var (ipv4, ipv6) = (ipv4Task.Result, ipv6Task.Result);
+        if (ipv6 is not null)
+            ChosenOwnPort = GetFreeUdpPort();
+        
         var offer = new Offer
         {
-            Ipv4 = ipv4Task.Result?.ToString(),
-            Ipv6 = ipv6Task.Result?.ToString(),
-            Port = ChosenOwnPort,
+            Ipv4 = ipv4?.ToString(),
+            Ipv6 = ipv6?.ToString(),
+            Port = ChosenOwnPort ?? null,
             ClientThumbprint = thumbprint
         };
         var json = JsonSerializer.Serialize(offer);
-        Console.WriteLine(json);
         return json;
     }
-    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint)
+    public async Task<string> ConstructAnswerAsync(string offerJson, string thumbprint, bool forceIpv4 = false, int? port = null)
     {
         var offer = JsonSerializer.Deserialize<Offer>(offerJson) ?? throw new ArgumentException("Invalid offer JSON");
         
-        var peerIpv6 = string.IsNullOrWhiteSpace(offer.Ipv6) ? null : IPAddress.Parse(offer.Ipv6);
         var peerIpv4 = string.IsNullOrWhiteSpace(offer.Ipv4) ? null : IPAddress.Parse(offer.Ipv4);
+        var peerIpv6 = string.IsNullOrWhiteSpace(offer.Ipv6) && !forceIpv4 ? null : IPAddress.Parse(offer.Ipv6!);
 
         var ipv4Task = GetPublicIpv4Async();
-        var ipv6Task = GetPublicIpv6Async();
+        Task<IPAddress?> ipv6Task;
+
+        if (!forceIpv4)
+            ipv6Task = GetPublicIpv6Async();
+        else
+            ipv6Task = Task.FromResult<IPAddress?>(null); 
+
         await Task.WhenAll(ipv4Task, ipv6Task);
+
         var ipv4 = ipv4Task.Result;
         var ipv6 = ipv6Task.Result;
+        // todo here
         
         if (peerIpv6 is not null && ipv6 is not null)
         {
@@ -119,11 +135,11 @@ public class SignalingUtils
         IsIpv6 = ChosenPeerIp.AddressFamily == AddressFamily.InterNetworkV6;
         Console.WriteLine($"Chosen peer IP: {ChosenPeerIp}");
     }
-    private static int GetFreeUdpPortAsync()
+    private int GetFreeUdpPort()
     {
         // Race condition is very unlikely in this context as the OS usually cycles ports
-        using var udp = new UdpClient(0);
-        return udp.Client.LocalEndPoint is IPEndPoint ep ? ep.Port : throw new InvalidOperationException("Failed to get free UDP port");
+        udpClient = new(0);
+        return udpClient.Client.LocalEndPoint is IPEndPoint ep ? ep.Port : throw new InvalidOperationException("Failed to get free UDP port");
     }
     private static async Task<IPAddress?> GetPublicIpv6Async()
     {
