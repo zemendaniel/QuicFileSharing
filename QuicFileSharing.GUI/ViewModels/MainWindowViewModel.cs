@@ -92,7 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             if (signalingUtils.PortV6 is not null)
             {
-                udpV4 = new UdpClient(new IPEndPoint(IPAddress.IPv6Any, signalingUtils.PortV6.Value));
+                udpV6 = new UdpClient(new IPEndPoint(IPAddress.IPv6Any, signalingUtils.PortV6.Value));
                 Console.WriteLine("started udpv6");
             }
             
