@@ -32,7 +32,7 @@ public class SignalingMessage
     public required string Data { get; init; }
 }
 
-public class SignalingUtils
+public class SignalingUtils: IDisposable
 {
     public static readonly JsonSerializerOptions Options = new()
     {
@@ -75,7 +75,7 @@ public class SignalingUtils
         var offer = JsonSerializer.Deserialize<Offer>(offerJson) ?? throw new ArgumentException("Invalid offer JSON");
         
         var clientIpv4 = string.IsNullOrWhiteSpace(offer.ClientIpv4) ? null : IPAddress.Parse(offer.ClientIpv4);
-        var clientIpv6 = string.IsNullOrWhiteSpace(offer.ClientIpv6) && !forceIpv4 ? null : IPAddress.Parse(offer.ClientIpv6!);
+        var clientIpv6 = string.IsNullOrWhiteSpace(offer.ClientIpv6) || forceIpv4 ? null : IPAddress.Parse(offer.ClientIpv6!);
         
         IPAddress? serverIp;
         if (forceIpv4)
@@ -123,7 +123,7 @@ public class SignalingUtils
         var json = JsonSerializer.Serialize(answer);
         
         if (serverIp.AddressFamily == AddressFamily.InterNetworkV6)
-            await PunchUdpHoleAsync(PeerIp!, PeerPort, (int)OwnPort!);
+            await PunchUdpHoleAsync(PeerIp!, PeerPort);
         
         return json;
     }
@@ -138,7 +138,8 @@ public class SignalingUtils
     private int GetFreeUdpPort()
     {
         // Race condition is very unlikely in this context as the OS usually cycles ports
-        portKeepAliveSocket = new(0);
+        var localEndpoint = new IPEndPoint(IPAddress.IPv6Any, 0);
+        portKeepAliveSocket = new(localEndpoint);
         return portKeepAliveSocket.Client.LocalEndPoint is IPEndPoint ep ? ep.Port : throw new InvalidOperationException("Failed to get free UDP port");
     }
     private static async Task<IPAddress?> GetPublicIpv6Async()
@@ -174,16 +175,25 @@ public class SignalingUtils
         return null;
     }
 
-    private static async Task PunchUdpHoleAsync(IPAddress peerIp, int peerPort, int localPort)
+    private async Task PunchUdpHoleAsync(IPAddress peerIp, int peerPort)
     {
-        var localEndpoint = peerIp.AddressFamily == AddressFamily.InterNetworkV6 ? new IPEndPoint(IPAddress.IPv6Any, localPort) : new IPEndPoint(IPAddress.Any, localPort);
         var remoteEndpoint = new IPEndPoint(peerIp, peerPort);
-        using var udp = new UdpClient(localEndpoint);
+        if (portKeepAliveSocket is null)
+            throw new InvalidOperationException("No port keep alive socket.");
         
         List<Task> tasks = [];
         for (var i = 0; i < 5; i++)
-            tasks.Add(udp.SendAsync([], 0, remoteEndpoint));
+            tasks.Add(portKeepAliveSocket.SendAsync([1], 1, remoteEndpoint));
         
         await Task.WhenAll(tasks);
+    }
+    public void CloseUdpSocket()
+    {
+        portKeepAliveSocket?.Close();
+    }
+
+    public void Dispose()
+    {
+        CloseUdpSocket();
     }
 }

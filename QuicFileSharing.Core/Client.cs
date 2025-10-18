@@ -9,12 +9,12 @@ public class Client : QuicPeer
 {
     public bool GotConnected { get; private set;}
 
-    public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, int localPort, string expectedThumbprint)
+    public async Task StartAsync(IPAddress remoteAddress, int remotePort, bool isIpv6, string expectedThumbprint, int? localPort = null)
     {
         var clientConnectionOptions = new QuicClientConnectionOptions
         {
             RemoteEndPoint = new IPEndPoint(remoteAddress, remotePort),
-            LocalEndPoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort),
+            LocalEndPoint = new IPEndPoint(isIpv6 ? IPAddress.IPv6Any : IPAddress.Any, localPort ?? 0),
             DefaultStreamErrorCode = 0x0A,
             DefaultCloseErrorCode = 0x0B,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions

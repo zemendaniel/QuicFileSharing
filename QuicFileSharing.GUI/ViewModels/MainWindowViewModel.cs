@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
-using System.Net.Mime;
+using System.Net.Quic;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -55,7 +56,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SetPeerHandlers();
         var client = (peer as Client)!;
         
-        var signalingUtils = new SignalingUtils();
+        using var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         var cts = new CancellationTokenSource();
@@ -93,7 +94,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             var answer = await signaling.AnswerTsc.Task;
             signalingUtils.ProcessAnswer(answer);
-            if (signalingUtils.ChosenPeerIp == null)
+            if (signalingUtils.PeerIp == null)
             {
                 LobbyText = "Could not connect to peer: Could not agree on IP generation.";
                 return;
@@ -101,12 +102,21 @@ public partial class MainWindowViewModel : ViewModelBase
 
             try
             {
+                signalingUtils.CloseUdpSocket();
                 await Task.Run(() => client.StartAsync(
-                    signalingUtils.ChosenPeerIp,
-                    signalingUtils.ChosenPeerPort,
-                    signalingUtils.IsIpv6,
-                    signalingUtils.ChosenOwnPort,
-                    signalingUtils.ServerThumbprint!), cts.Token);
+                    signalingUtils.PeerIp,
+                    signalingUtils.PeerPort,
+                    signalingUtils.PeerIp.AddressFamily == AddressFamily.InterNetworkV6,
+                    signalingUtils.ServerThumbprint!,
+                    signalingUtils.OwnPort), cts.Token);
+            }
+            catch (QuicException ex)
+            {
+                await cts.CancelAsync();
+                LobbyText =
+                    $"Could not connect to peer: {ex.Message}. " +
+                    $"Make sure that you have a working internet connection and firewall is not blocking QUIC traffic.";
+                return;
             }
             catch (Exception ex)
             {
@@ -128,13 +138,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task CreateRoom()
     {
+        var dummyForceIpv4 = true;
+        var dummyPort = 30001;
+        
         peer = new Server();
         SetPeerHandlers();
 
         LobbyText = "Connecting to coordination server...";
         var server = (peer as Server)!;
 
-        var signalingUtils = new SignalingUtils();
+        using var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         signaling.OnDisconnected += (_, description) =>
@@ -158,8 +171,20 @@ public partial class MainWindowViewModel : ViewModelBase
         RoomCode = info.id;
 
         var offer = await signaling.OfferTcs.Task;
-        var answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint));
-        await Task.Run(() => server.StartAsync(signalingUtils.IsIpv6, signalingUtils.ChosenOwnPort,
+        string answer;
+        try
+        {
+            answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint, dummyForceIpv4, dummyPort));
+        }
+        catch (InvalidOperationException ex)
+        {
+            State = AppState.Lobby;
+            LobbyText = $"Failed to accept connection: {ex.Message}";
+            return;       
+        }
+
+        signalingUtils.CloseUdpSocket();
+        await Task.Run(() => server.StartAsync(!dummyForceIpv4, signalingUtils.OwnPort ?? dummyPort,
             signalingUtils.ClientThumbprint!));
         
         try
@@ -320,6 +345,19 @@ public partial class MainWindowViewModel : ViewModelBase
         if (time.TotalHours >= 1)
             return $"{(int)time.TotalHours}h {time.Minutes}m {time.Seconds}s";
         return time.TotalMinutes >= 1 ? $"{time.Minutes}m {time.Seconds}s" : $"{time.Seconds}s";
+    }
+    
+    [RelayCommand]
+    private async Task BackToLobby()
+    {
+        State = AppState.Lobby;
+        await ClosePeer();
+    }
+
+    private async Task ClosePeer()
+    {
+        if (peer is Server or Client)
+            await peer.StopAsync();
     }
 
 }
