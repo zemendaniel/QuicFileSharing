@@ -150,11 +150,10 @@ public partial class MainWindowViewModel : ViewModelBase
         using var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
-        signaling.OnDisconnected += (_, description) =>
+        signaling.OnDisconnected += async (_, description) =>
         {
             if (server.ClientConnected.Task.IsCompleted) return;
-            
-            State = AppState.Lobby;
+            State = AppState.Lobby;            
             LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ?
                 "The signaling was closed before your peer could join." : description)}";
         };
@@ -348,16 +347,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
     
     [RelayCommand]
-    private async Task BackToLobby()
+    private void BackToLobby()
     {
         State = AppState.Lobby;
-        await ClosePeer();
     }
-
-    private async Task ClosePeer()
+    [RelayCommand]
+    private void OpenSettings()
     {
-        if (peer is Server or Client)
-            await peer.StopAsync();
+        State = AppState.Settings;
     }
-
 }

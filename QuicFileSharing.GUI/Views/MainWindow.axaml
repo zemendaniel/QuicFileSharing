@@ -34,6 +34,7 @@
             <TextBlock>Create a new room:</TextBlock>
             <Button Content="Create Room" Command="{Binding CreateRoomCommand}"/>
             <TextBlock Text="{Binding LobbyText}"></TextBlock>
+            <Button Content="Settings" Command="{Binding OpenSettingsCommand}"></Button>
         </StackPanel>
         
         <!-- WaitingForConnection -->
@@ -63,6 +64,7 @@
         <!-- Settings -->
         <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.Settings}}">
             <TextBlock>Settings</TextBlock>
+            <Button Content="Back" Command="{Binding BackToLobbyCommand}"></Button>
         </StackPanel>
     </Grid>
     
