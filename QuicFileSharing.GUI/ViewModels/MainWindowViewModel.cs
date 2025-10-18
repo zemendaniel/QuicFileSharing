@@ -67,7 +67,8 @@ public partial class MainWindowViewModel : ViewModelBase
             if (cts.Token.IsCancellationRequested) return;
             await cts.CancelAsync();
             State = AppState.Lobby;
-            LobbyText = $"Disconnected from coordination server: {description ?? "Unknown error"}";
+            LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ? "Unknown error" : description)}";
+
         };
         LobbyText = "Connecting to peer...";
         try
@@ -89,13 +90,24 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             catch (InvalidOperationException ex)
             {
+                await cts.CancelAsync();
                 LobbyText = $"Could not connect to coordination server: {ex.Message}";
             }
 
-            var answer = await signaling.AnswerTsc.Task;
-            signalingUtils.ProcessAnswer(answer);
+            var answer = await signaling.AnswerTsc.Task.WaitAsync(cts.Token);
+            try
+            {
+                signalingUtils.ProcessAnswer(answer);
+            }
+            catch (Exception ex)
+            {
+                await cts.CancelAsync();
+                LobbyText = $"Could not connect to peer: {ex.Message}";
+                return;           
+            }
             if (signalingUtils.PeerIp == null)
             {
+                await cts.CancelAsync();
                 LobbyText = "Could not connect to peer: Could not agree on IP generation.";
                 return;
             }
@@ -138,7 +150,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task CreateRoom()
     {
-        var dummyForceIpv4 = true;
+        var dummyForceIpv4 = false;
         var dummyPort = 30001;
         
         peer = new Server();
@@ -146,18 +158,20 @@ public partial class MainWindowViewModel : ViewModelBase
 
         LobbyText = "Connecting to coordination server...";
         var server = (peer as Server)!;
-
+        var cts = new CancellationTokenSource();
         using var signalingUtils = new SignalingUtils();
         await using var signaling = new WebSocketSignaling(WsBaseUri);
         
         signaling.OnDisconnected += async (_, description) =>
         {
             if (server.ClientConnected.Task.IsCompleted) return;
+            if (cts.Token.IsCancellationRequested) return;
+            await cts.CancelAsync();
             State = AppState.Lobby;            
             LobbyText = $"Disconnected from coordination server: {(string.IsNullOrEmpty(description) ?
                 "The signaling was closed before your peer could join." : description)}";
         };
-        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Server));
+        var (success, errorMessage) = await Task.Run(() => signaling.ConnectAsync(Role.Server), cts.Token);
         if (success is not true)
         { 
             State = AppState.Lobby; 
@@ -173,10 +187,12 @@ public partial class MainWindowViewModel : ViewModelBase
         string answer;
         try
         {
-            answer = await Task.Run(() => signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint, dummyForceIpv4, dummyPort));
+            answer = await Task.Run(() => 
+                signalingUtils.ConstructAnswerAsync(offer, server.Thumbprint, dummyForceIpv4, dummyPort), cts.Token);
         }
         catch (InvalidOperationException ex)
         {
+            await cts.CancelAsync();
             State = AppState.Lobby;
             LobbyText = $"Failed to accept connection: {ex.Message}";
             return;       
@@ -184,11 +200,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         signalingUtils.CloseUdpSocket();
         await Task.Run(() => server.StartAsync(!dummyForceIpv4, signalingUtils.OwnPort ?? dummyPort,
-            signalingUtils.ClientThumbprint!));
+            signalingUtils.ClientThumbprint!), cts.Token);
         
         try
         {
-            await Task.Run(() => signaling.SendAsync(answer, "answer"));
+            await Task.Run(() => signaling.SendAsync(answer, "answer"), cts.Token);
         }
         catch (InvalidOperationException ex)
         {
@@ -198,7 +214,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await server.ClientConnected.Task;
         State = AppState.InRoom;
-        await Task.Run(signaling.CloseAsync);
+        await Task.Run(signaling.CloseAsync, CancellationToken.None);
     }
 
     [RelayCommand]

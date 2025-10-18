@@ -84,7 +84,7 @@ public class SignalingUtils: IDisposable
             serverIp = await GetPublicIpv6Async();
         
         if (serverIp is null && !forceIpv4)
-            throw new InvalidOperationException("Failed to get public IPv6 address. Are you connected to the internet?" +
+            throw new InvalidOperationException("Failed to get public IPv6 address. Are you connected to the internet? " +
                                                 "If you do not have IPv6 connectivity, you can configure using IPv4 in the settings.");
         
         if (serverIp is null && forceIpv4)

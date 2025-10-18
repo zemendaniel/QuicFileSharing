@@ -39,7 +39,6 @@
         
         <!-- WaitingForConnection -->
         <StackPanel IsVisible="{Binding State, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:AppState.WaitingForConnection}}">
-            <Button Command="{Binding BackToLobbyCommand}">Cancel</Button>
             <TextBlock Text="Waiting for incoming connection..."></TextBlock>
             <TextBlock Text="Share this code with your peer:"></TextBlock>
             <SelectableTextBlock Text="{Binding RoomCode}"></SelectableTextBlock>
