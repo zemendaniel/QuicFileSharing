@@ -1,6 +1,7 @@
 a lot of testing!!!!
 
 settings page
+
 disable, enable buttons, proper ui
 ui notifications in receiving too
 
